@@ -1,0 +1,17 @@
+<pre class='metadata'>
+Title: Device Bound Session Credentials for SSO
+Shortname: dbsc-sso
+Level: 1
+Status: CG-DRAFT
+Group: WICG
+Repository: WICG/dbsc-sso
+URL: http://example.com/url-this-spec-will-live-at
+Editor: Lucas Santos, Google https://google.com, santosls@google.com
+!Tests: <a href=https://github.com/w3c/web-platform-tests/tree/master/dbsc-sso>web-platform-tests dbsc-sso/</a> (<a href=https://github.com/w3c/web-platform-tests/labels/dbsc-sso>ongoing work</a>)
+Abstract: A short description of your spec, one or two sentences.
+</pre>
+
+Introduction {#intro}
+=====================
+
+See https://github.com/tabatkins/bikeshed to get started.
