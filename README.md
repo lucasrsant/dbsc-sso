@@ -251,11 +251,11 @@ Each step in the diagram is detailed below:
 
 **Key generation and attestation:** This step involves a few cryptographic operations in the TEE, which are detailed as such:
 
-1. A new signing key pair $(IdP_{sk-pub}, IdP_{sk-priv})$ is created. $IdP_{sk-pub}$ is used to register the IdP DBSC session.
+1. A new signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ is created. $IdP_\text{sk-pub}$ is used to register the IdP DBSC session.
 
-1. The challenge sent by the server is signed with $IdP_{sk-priv}$.
+1. The challenge sent by the server is signed with $IdP_\text{sk-priv}$.
 
-1. A new attestation key pair $(IdP_{ak-pub}, IdP_{ak-priv})$ is created and used to create an attestation claim for $IdP_{sk}$.
+1. A new attestation key pair $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is created and used to create an attestation claim for $IdP_\text{sk}$.
 
 **Registration statement:** A new variant of the DBSC proof takes place to accommodate both subject and attestation keys. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
 
@@ -302,9 +302,9 @@ d := hash(signing_key_public_material, "sha_256")
 stmt = concat(c, d)
 ```
 
-*  **sig**: The signature of `stmt` encoded in Base64. It must be signed using $IdP_{ak-priv}$.
+*  **sig**: The signature of `stmt` encoded in Base64. It must be signed using $IdP_\text{ak-priv}$.
 
-**Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_{pk}, IdP_{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
+**Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
 **Attestation key bypass:** Key attestation is used to generate per-RP keys and avoid re-using the same signing key as the IdP. This is mostly designed to prevent user tracking. However, under enterprise contexts, sharing the IdP key with multiple RPs might not pose a privacy concern, and should be allowed under certain circumstances (e.g. Enterprise browser policies) to increase adoption.
 
@@ -332,7 +332,7 @@ The attestation statement `stmt` can have two different formats depending on wha
 
 *  **TPM**: The [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) structure defined in the TPM 2.0 specs.
 
-*  **SECURE\_ENCLAVE**: The attestation statement is the concatenation of the challenge sent by the server and the signing key digest signed by $IdP_{ak-priv}$.
+*  **SECURE\_ENCLAVE**: The attestation statement is the concatenation of the challenge sent by the server and the signing key digest signed by $IdP_\text{ak-priv}$.
 
 In other words, it can be represented by:
 
@@ -508,19 +508,19 @@ This is a [boolean](https://datatracker.ietf.org/doc/html/rfc9651#name-booleans)
 
 The registration statement is the payload sent to the IdP when the user is signing in to it. It is composed of the following:
 
-* IdP public signing key material - The $IdP_{sk-pub}$ is used to validate the challenge signature. This proves possession of the private counterpart ($IdP_{sk-priv}$) of the signing key.
+* IdP public signing key material - The $IdP_\text{sk-pub}$ is used to validate the challenge signature. This proves possession of the private counterpart ($IdP_\text{sk-priv}$) of the signing key.
 
-* IdP attestation key - The $IdP_{ak-pub}$ is used to verify the attestation claim.
+* IdP attestation key - The $IdP_\text{ak-pub}$ is used to verify the attestation claim.
 
-* Attestation claim - The attestation claim cryptographically proves the relationship between $IdP_{sk-priv}$ and $IdP_{ak-priv}$. In other words, it proves they are both stored in the same TEE if the platform allows it. If the platform does not have such a capability (e.g. macOS), this key just proves that both come from the same client, but they **might ** not be stored in the same secure hardware.
+* Attestation claim - The attestation claim cryptographically proves the relationship between $IdP_\text{sk-priv}$ and $IdP_\text{ak-priv}$. In other words, it proves they are both stored in the same TEE if the platform allows it. If the platform does not have such a capability (e.g. macOS), this key just proves that both come from the same client, but they **might ** not be stored in the same secure hardware.
 
-* Challenge signature - This signature is used to prove $IdP_{sk-priv}$ possession, as previously mentioned.
+* Challenge signature - This signature is used to prove $IdP_\text{sk-priv}$ possession, as previously mentioned.
 
 To validate the registration statement, the IdP must do the following:
 
-1. Verify the challenge signature using $IdP_{sk-pub}$.
-1. Verify the attestation signature using $IdP_{ak-pub}$.
-1. Verify both $IdP_{sk-pub}$ and $IdP_{ak-pub}$ are present in the attestation statement.
+1. Verify the challenge signature using $IdP_\text{sk-pub}$.
+1. Verify the attestation signature using $IdP_\text{ak-pub}$.
+1. Verify both $IdP_\text{sk-pub}$ and $IdP_\text{ak-pub}$ are present in the attestation statement.
 
 #### Public and attestation keys storage
 
@@ -567,12 +567,12 @@ When signing in to an IdP, the User Agent must provide not only the session key 
 
 The registration statement is built as follows:
 
-1. Browser computes a new session key $(IdP_{sk-pub}, IdP_{sk-priv})$ for the IdP.
-1. Browser signs the challenge sent in the `Secure-Session-Registration` header using $IdP_{sk-priv}$.
-1. Browser computes a new attestation key $(IdP_{ak-pub}, IdP_{ak-priv})$ for the IdP.
+1. Browser computes a new session key $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ for the IdP.
+1. Browser signs the challenge sent in the `Secure-Session-Registration` header using $IdP_\text{sk-priv}$.
+1. Browser computes a new attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ for the IdP.
 	* The attestation key should be keyed by the (IdP’s domain, session ID) pair.
-1. Browser computes the `attestation_claim` of $IdP_{sk-pub}$ using the attestation key $IdP_{ak}$.
-1. Browser computes the `attestation_signature` using $IdP_{ak-priv}$.
+1. Browser computes the `attestation_claim` of $IdP_\text{sk-pub}$ using the attestation key $IdP_\text{ak}$.
+1. Browser computes the `attestation_signature` using $IdP_\text{ak-priv}$.
 
 The response is then encoded in the format of a DBSC proof and sent to the server.
 
@@ -593,12 +593,12 @@ When signing in to Relying Parties, the Identity Provider needs to assert that t
 This is done as follows:
 
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
-1. Browser computes the RP session key $RP_{sk}$ when the IdP instructs it to.
+1. Browser computes the RP session key $RP_\text{sk}$ when the IdP instructs it to.
 1. Browser retrieves the attestation key keyed by (IdP domain, session ID).
-1. Browser computes the $RP_{sk}$'s attestation claim using the IdP's attestation key.
+1. Browser computes the $RP_\text{sk}$'s attestation claim using the IdP's attestation key.
 1. Browser computes the attestation claim's signature using the IdP's attestation key.
-1. Browser computes the digest of $RP_{sk-pub}$.
-1. Browser signs the challenge sent by the IdP using $RP_{sk-priv}$.
+1. Browser computes the digest of $RP_\text{sk-pub}$.
+1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
 
 The response is also encoded in the format of a [DBSC proof](https://www.w3.org/TR/dbsc/#dbsc-proof) and sent to the server.
 
