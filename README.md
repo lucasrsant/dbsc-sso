@@ -276,8 +276,8 @@ Each step in the diagram is detailed below:
 // Payload
 {
 	"aud": "https://idp.com/reg",
-	"jti": "Base64 encoded JWT representing the DBSC proof as specified at <https://www.w3.org/TR/dbsc/#format-jwt>",
-	"att": "Base64 encoded JSON object defined below."
+	"jti": "Base64URL encoded JWT representing the DBSC proof as specified at <https://www.w3.org/TR/dbsc/#format-jwt>",
+	"att": "Base64URL encoded JSON object defined below."
 }
 ```
 
@@ -286,23 +286,24 @@ The attestation statement format is defined as follows:
 ```json
 {
 	"fmt": "TPM|SECURE_ENCLAVE",
-	"stmt": "Base64 encoded attestation statement",
-	"sig": "Base64 encoded signature of the attestation statement",
+	"stmt": "Base64URL encoded attestation statement",
+	"sig": "Base64URL encoded signature of the attestation statement",
 }
 
 ```
 
 *  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`.
-*  **stmt**: The attestation statement payload encoded in Base64. If `fmt` is set to `TPM`, the format of the statement is the [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
+*  **stmt**: The attestation statement payload encoded in Base64URL. If `fmt` is set to `TPM`, the format of the statement is the [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
 
 ```
 // pseudo-code
 c := "dm9pY2VvYmplY3...bmFja3RvdWNoaGVscGY=" // challenge used in the DBSC session registration
-d := hash(signing_key_public_material, "sha_256")
+d := hash(signing_key_spki, "SHA-255")
 stmt = concat(c, d)
+encoded_stmt := base64url_enc(stmt)
 ```
 
-*  **sig**: The signature of `stmt` encoded in Base64. It must be signed using $IdP_{ak-priv}$.
+*  **sig**: The signature of `stmt` encoded in Base64URL. It must be signed using $IdP_{ak-priv}$.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_{pk}, IdP_{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -320,10 +321,10 @@ The binding statement is defined as follows:
 
 ```json
 {
-	"stmt": "Base64 encoded claim",
-	"aik": "[Base64 encoded JWK of IdP_pak]",
+	"stmt": "Base64URL encoded claim",
+	"aik": "[Base64URL encoded JWK of IdP_pak]",
 	"fmt": "[TPM|SECURE_ENCLAVE]",
-	"challenge": "[Base64 encoded challenge]",
+	"challenge": "[Base64URL encoded challenge]",
 	"sub_key_digest": "SHA 256 digest of RP public key"
 }
 ```
@@ -339,8 +340,9 @@ In other words, it can be represented by:
 ```
 // pseudo-code
 c := "aHVzYmFuZHJpZG...cmxkYmFzZWJhbGxhcnI=" // replay-resistant challenge
-t := hash(signing_key_pem, "sha_256")
-stmt := sign(concat(c, t), IdP_sak)
+t := hash(signing_key_spki, "SHA-256")
+stmt := sign(concat(c, t), IdP_ak-priv)
+encoded_stmt := base64url_enc(stmt)
 ```
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
