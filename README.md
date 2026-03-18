@@ -298,7 +298,7 @@ The attestation statement format is defined as follows:
 ```
 // pseudo-code
 c := "dm9pY2VvYmplY3...bmFja3RvdWNoaGVscGY=" // challenge used in the DBSC session registration
-d := hash(signing_key_spki, "SHA-255")
+d := hash(signing_key_spki, "SHA-256")
 stmt = concat(c, d)
 encoded_stmt := base64url_enc(stmt)
 ```
