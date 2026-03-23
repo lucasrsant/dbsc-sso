@@ -235,7 +235,7 @@ sequenceDiagram
 	i->>u: 200 w/ authn cookie, response includes header to start session and share attestation key.<br>Header: Secure-Session-Registration=aik_required: ?1, Secure-Session-Challenge=...
 
 	alt  Background
-		u->>t: Computes IDP signing and attestation keys,<br>and the signature of the challenge
+		u->>t: Computes IdP signing and attestation keys,<br>and the signature of the challenge
 		t->>u: Return
 		u->>i: Post (IDPpk, IDPaik, attStatement, attSignature, signature)
 		
@@ -257,7 +257,7 @@ Each step in the diagram is detailed below:
 
 1. A new attestation key pair $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is created and used to create an attestation claim for $IdP_\text{sk}$.
 
-**Registration statement:** A new variant of the DBSC proof takes place to accommodate both subject and attestation keys. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
+**Registration statement:** A new variant of the [DBSC proof](https://w3c.github.io/webappsec-dbsc/#format-jwt) takes place to accommodate both subject and attestation keys. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
 
 ```json
 // Header
@@ -276,8 +276,8 @@ Each step in the diagram is detailed below:
 // Payload
 {
 	"aud": "https://idp.com/reg",
-	"jti": "Base64 encoded JWT representing the DBSC proof as specified at <https://www.w3.org/TR/dbsc/#format-jwt>",
-	"att": "Base64 encoded JSON object defined below."
+	"jti": "Base64URL encoded JWT representing the DBSC proof as specified at https://w3c.github.io/webappsec-dbsc/#format-jwt",
+	"att": "Base64URL encoded JSON object defined below."
 }
 ```
 
@@ -286,23 +286,24 @@ The attestation statement format is defined as follows:
 ```json
 {
 	"fmt": "TPM|SECURE_ENCLAVE",
-	"stmt": "Base64 encoded attestation statement",
-	"sig": "Base64 encoded signature of the attestation statement",
+	"stmt": "Base64URL encoded attestation statement",
+	"sig": "Base64URL encoded signature of the attestation statement",
 }
 
 ```
 
 *  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`.
-*  **stmt**: The attestation statement payload encoded in Base64. If `fmt` is set to `TPM`, the format of the statement is the [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
+*  **stmt**: The attestation statement payload encoded in Base64URL. If `fmt` is set to `TPM`, the format of the statement is the [TPM2B\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=127) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
 
 ```
 // pseudo-code
 c := "dm9pY2VvYmplY3...bmFja3RvdWNoaGVscGY=" // challenge used in the DBSC session registration
-d := hash(signing_key_public_material, "sha_256")
-stmt = concat(c, d)
+d := hash(signing_key_spki, "SHA-256")
+raw_stmt = concat(c, d)
+stmt := base64url_enc(raw_stmt)
 ```
 
-*  **sig**: The signature of `stmt` encoded in Base64. It must be signed using $IdP_\text{ak-priv}$.
+*  **sig**: The signature of `raw_stmt` encoded in Base64URL. It must be signed using $IdP_\text{ak-priv}$.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -320,10 +321,10 @@ The binding statement is defined as follows:
 
 ```json
 {
-	"stmt": "Base64 encoded claim",
-	"aik": "[Base64 encoded JWK of IdP_pak]",
+	"stmt": "Base64URL encoded claim",
+	"aik": "[Base64URL encoded JWK of IdP_pak]",
 	"fmt": "[TPM|SECURE_ENCLAVE]",
-	"challenge": "[Base64 encoded challenge]",
+	"challenge": "[Base64URL encoded challenge]",
 	"sub_key_digest": "SHA 256 digest of RP public key"
 }
 ```
@@ -339,8 +340,9 @@ In other words, it can be represented by:
 ```
 // pseudo-code
 c := "aHVzYmFuZHJpZG...cmxkYmFzZWJhbGxhcnI=" // replay-resistant challenge
-t := hash(signing_key_pem, "sha_256")
-stmt := sign(concat(c, t), IdP_sak)
+t := hash(signing_key_spki, "SHA-256")
+raw_stmt := sign(concat(c, t), IdP_ak-priv)
+encoded_stmt := base64url_enc(raw_stmt)
 ```
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
@@ -386,7 +388,7 @@ Before establishing the session, the RP should evaluate the following scenarios:
 	* If the signed IdP response contains the **initial parameters but lacks a trusted key**, it means that the IdP failed to assert any signing key. Detailed error messages may or may not be in the IdP response.
 	* If the signed IdP response **does not contain the initial parameters**, it's a strong indicator that the authentication request has been tampered with and this can be part of a downgrade attack.
 
-The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header as well as the `provider_url`, which must be the IdP domain, as shown in the [DBSC federated binding draft](https://www.w3.org/TR/dbsc/#federated-sessions-example).
+The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header as well as the `provider_url`, which must be the IdP domain, as shown in the [DBSC federated binding draft](https://w3c.github.io/webappsec-dbsc/#federated-sessions-example).
 
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criterias match:
 
@@ -406,7 +408,7 @@ When the Identity Provider instructs the User Agent to generate a new signing ke
 
 *  **Target Domain:** The domain specified in the `target_domain` parameter, which is the RP domain.
 
-Note: If the RP wants to keep separate keys for different subdomains, it's up to them to use separate [session IDs](https://www.w3.org/TR/dbsc/#device-bound-session-session-identifier) so that browsers do not overwrite keys.
+Note: If the RP wants to keep separate keys for different subdomains, it's up to them to use separate [session IDs](https://w3c.github.io/webappsec-dbsc/#device-bound-session-session-identifier) so that browsers do not overwrite keys.
 
 *  **Provider URL:** The domain of the Identity Provider that triggered the key generation.
 
@@ -600,7 +602,7 @@ This is done as follows:
 1. Browser computes the digest of $RP_\text{sk-pub}$.
 1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
 
-The response is also encoded in the format of a [DBSC proof](https://www.w3.org/TR/dbsc/#dbsc-proof) and sent to the server.
+The response is also encoded in the format of a [DBSC proof](https://w3c.github.io/webappsec-dbsc/#dbsc-proof) and sent to the server.
 
 Once this binding statement is verified, the IdP can then issue an authentication token to be redirected to the RP.
 
@@ -628,6 +630,6 @@ Keeping the key generation asynchronous would imply new RP <-> IDP communication
 
 ## Privacy considerations
 
-The DBSC specification states that the protocol's goal is [not to introduce new user tracking surfaces](https://www.w3.org/TR/dbsc/#privacy-considerations).
+The DBSC specification states that the protocol's goal is [not to introduce new user tracking surfaces](https://w3c.github.io/webappsec-dbsc/#privacy-considerations).
 
 The SSO implementation of the protocol follows the same principle, so users have total control over when and to whom their keys can be shared with. Such keys are resettable and do not uniquely identify the users' hardware.
