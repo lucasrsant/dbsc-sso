@@ -303,7 +303,7 @@ raw_stmt = concat(c, d)
 stmt := base64url_enc(raw_stmt)
 ```
 
-*  **sig**: The signature of `raw_stmt` encoded in Base64URL. It must be signed using $IdP_\text{ak-priv}$.
+*  **sig**: The attestation statement signature encoded in Base64URL. If `fmt` is set to `TPM`, the format of the signature is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) object.  If `fmt` is set to `SECURE_ENCLAVE`, then it is the signature of `raw_stmt`, encoded in Base64URL. It must be signed using $IdP_\text{ak-priv}$.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
