@@ -205,7 +205,7 @@ This permits the SSO authentication process to continue normally.
 
 On OIDC flows, the key digest is included in the OIDC token, which is sent via backchannel communication between the RP and the IdP.
 
-**RP session initialization:** RPs can issue authentication cookies bound to the key trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key and also the `provider_url` to indicate the IdP that attested the underlying key.
+**RP session initialization:** RPs can issue authentication cookies bound to the key trusted by the IdP immediately, and then return the `Secure-Session-Registration` header to start the binding process on the User Agent side. The header must include the `provider_key` parameter to indicate the expected key digest along with the `provider_key_alg` to specify the algorithm used in the digest computation. The `provider_url` must also be provided to indicate the IdP that attested the underlying key.
 
 RPs should not issue unbound long-lived cookies, otherwise the session would not be protected.
 
@@ -388,12 +388,12 @@ Before establishing the session, the RP should evaluate the following scenarios:
 	* If the signed IdP response contains the **initial parameters but lacks a trusted key**, it means that the IdP failed to assert any signing key. Detailed error messages may or may not be in the IdP response.
 	* If the signed IdP response **does not contain the initial parameters**, it's a strong indicator that the authentication request has been tampered with and this can be part of a downgrade attack.
 
-The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header as well as the `provider_url`, which must be the IdP domain, as shown in the [DBSC federated binding draft](https://w3c.github.io/webappsec-dbsc/#federated-sessions-example).
+The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header as well as the `provider_url`, which must be the IdP domain, as shown in the [DBSC federated binding draft](https://w3c.github.io/webappsec-dbsc/#federated-sessions-example). The parameter `provider_key_alg` should also be included as part of the registration header.
 
 The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criterias match:
 
 * RP's domain is the same indicated by the Identity Provider in the `target_domain` property of the `Secure-Session-GenerateKey` header.
-* The `provider_key` parameter matches the underlying key digest.
+* The `provider_key` parameter matches the underlying key digest (according to the algorithm specified in `provider_key_alg`).
 * The `provider_url` matches the Identity Provider's domain.
 
 Once the existing key is sent to the RP, the session registration flow happens in the same way as the standard DBSC.
