@@ -293,7 +293,6 @@ The attestation statement format is defined as follows:
 	"stmt": "Base64URL encoded attestation statement",
 	"sig": "Base64URL encoded signature of the attestation statement",
 }
-
 ```
 
 *  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`.
@@ -308,7 +307,9 @@ raw_stmt = concat(c, d)
 stmt := base64url_enc(raw_stmt)
 ```
 
-*  **sig**: The attestation statement signature encoded in Base64URL. If `fmt` is set to `TPM`, the format of the signature is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) object.  If `fmt` is set to `SECURE_ENCLAVE`, then it is the signature of `raw_stmt`, encoded in Base64URL. It must be signed using $IdP_\text{ak-priv}$.
+*  **sig**: The attestation statement signature encoded in Base64URL. If `fmt` is set to `TPM`, the format of the signature is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is the ECDSA signature over `raw_stmt` signed using $IdP_\text{ak-priv}$, formatted as a raw IEEE P1363 signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per [RFC 7518 Section 3.4](https://www.rfc-editor.org/rfc/rfc7518#section-3.4)), encoded in Base64URL.
+
+	> **Platform Implementation Note (Apple platforms):** On Apple platforms, `SecKeyCreateSignature` produces an ASN.1 DER-encoded ECDSA signature (`kSecKeyAlgorithmECDSASignatureMessageX962SHA256`). Implementations (such as Chromium / User Agents) MUST convert this ASN.1 DER signature to the raw IEEE P1363 format ($r \parallel s$, fixed 64 bytes for P-256) before Base64URL encoding into `sig`.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -328,13 +329,13 @@ The binding statement is defined as follows:
 
 ```json
 {
+	"fmt": "TPM|SECURE_ENCLAVE",
 	"stmt": "Base64URL encoded claim",
-    "sig": "Base64URL encoded signature of `stmt`",
-	"fmt": "[TPM|SECURE_ENCLAVE]",
+	"sig": "Base64URL encoded signature of `stmt`",
 }
 ```
 
-The attestation statement `stmt` can have two different formats depending on what is specified in the `fmt` field.
+The attestation statement `stmt` can have two different formats depending on what is specified in the `fmt` field:
 
 *  **TPM**: The [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) structure defined in the TPM 2.0 specs.
 
@@ -348,14 +349,14 @@ c := "aHVzYmFuZHJpZG...cmxkYmFzZWJhbGxhcnI=" // replay-resistant challenge
 hash_alg := get_hash_alg_for_crypto_alg(chosen_alg)
 t := hash(signing_key_spki, hash_alg)
 raw_stmt := concat(c, t)
-encoded_stmt := base64url_enc(raw_stmt)
+stmt := base64url_enc(raw_stmt)
 ```
 
 The signature `sig` also depends on the format specified in the `fmt` field:
 
-* **TPM**: [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs.
+* **TPM**: The [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs.
 
-* **Secure Enclave**: The content of `stmt` signed by $IdP_\text{ak-priv}$.
+* **SECURE\_ENCLAVE**: The ECDSA signature over `raw_stmt` signed using $IdP_\text{ak-priv}$, formatted as a raw IEEE P1363 signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per [RFC 7518 Section 3.4](https://www.rfc-editor.org/rfc/rfc7518#section-3.4)), encoded in Base64URL. On Apple platforms, user agents MUST convert the ASN.1 DER signature from `SecKeyCreateSignature` to the raw IEEE P1363 format ($r \parallel s$, fixed 64 bytes for P-256) before Base64URL encoding into `sig`.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
@@ -552,7 +553,13 @@ The registration statement is the payload sent to the IdP when the user is signi
 To validate the registration statement, the IdP must do the following:
 
 1. Verify the challenge signature using $IdP_\text{sk-pub}$.
-1. Verify the attestation signature using $IdP_\text{ak-pub}$.
+1. Verify the attestation statement according to `fmt`:
+	* **`SECURE_ENCLAVE`**:
+		1. Decode `stmt` from Base64URL to obtain `raw_stmt` and verify it matches `concat(challenge, hash(IdP_sk-pub_spki, hash_alg))`.
+		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, with 32 bytes for $r$ and 32 bytes for $s$).
+		1. Verify the signature over `raw_stmt` using $IdP_\text{ak-pub}$ (converting the 64-byte raw IEEE P1363 $r \parallel s$ signature to ASN.1 DER format if required by the server's cryptographic library).
+	* **`TPM`**:
+		1. Verify the `TPMS_ATTEST` object in `stmt` and its `TPMT_SIGNATURE` in `sig` using $IdP_\text{ak-pub}$ per TPM 2.0 specs.
 1. Verify both $IdP_\text{sk-pub}$ and $IdP_\text{ak-pub}$ are present in the attestation statement.
 
 #### Public and attestation keys storage
@@ -581,10 +588,16 @@ Secure-Session-GenerateKey: (ES256 RS256); target_origin="https://relyingparty.c
 
 The binding statement validation is done as follows:
 
-* The provided challenge isn't expired nor reutilized.
-* The provided attestation statement is valid when:
-	* The attestation mode is `SECURE_ENCLAVE` and the recreated signature of challenge and key digest concatenation is valid, or
-	* The attestation mode is `TPM`, and the TPMS\_ATTEST object holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214).
+1. Verify that the provided `challenge` is not expired and has not been reutilized.
+1. Verify the attestation statement based on `fmt`:
+	* **`SECURE_ENCLAVE`**:
+		1. Decode `stmt` from Base64URL to obtain `raw_stmt` and verify that it matches `concat(challenge, key_digest)`.
+		1. Decode `sig` from Base64URL and verify that the decoded signature is exactly 64 bytes in length (raw IEEE P1363 format $r \parallel s$, fixed 64 bytes for P-256 / ES256).
+		1. Verify the signature over `raw_stmt` using the stored $IdP_\text{ak-pub}$ associated with the user session (converting the IEEE P1363 signature to ASN.1 DER format if required by the cryptographic verification library).
+	* **`TPM`**:
+		1. Decode and parse the `TPMS_ATTEST` object from `stmt`.
+		1. Verify that the `TPMS_ATTEST` object certifies the RP key digest, includes the challenge in `extraData`, and holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214).
+		1. Verify the `TPMT_SIGNATURE` in `sig` using the stored $IdP_\text{ak-pub}$.
 
 #### SAML Assertions and OIDC tokens
 
@@ -605,7 +618,7 @@ The registration statement is built as follows:
 1. Browser computes a new attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ for the IdP.
 	* The attestation key should be keyed by the (IdP’s domain, session ID) pair.
 1. Browser computes the `attestation_claim` of $IdP_\text{sk-pub}$ using the attestation key $IdP_\text{ak}$.
-1. Browser computes the `attestation_signature` using $IdP_\text{ak-priv}$.
+1. Browser computes the `attestation_signature` using $IdP_\text{ak-priv}$. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
 
 The response is then encoded in the format of a DBSC proof and sent to the server.
 
@@ -629,7 +642,7 @@ This is done as follows:
 1. Browser computes the RP session key $RP_\text{sk}$ when the IdP instructs it to.
 1. Browser retrieves the attestation key keyed by (IdP domain, session ID).
 1. Browser computes the $RP_\text{sk}$'s attestation claim using the IdP's attestation key.
-1. Browser computes the attestation claim's signature using the IdP's attestation key.
+1. Browser computes the attestation claim's signature using the IdP's attestation key. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
 1. Browser computes the digest of $RP_\text{sk-pub}$.
 1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
 
