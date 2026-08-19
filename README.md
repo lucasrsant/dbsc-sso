@@ -292,8 +292,8 @@ The attestation statement format is defined as follows:
 	"fmt": "TPM|SECURE_ENCLAVE",
 	"stmt": "Base64URL encoded attestation statement",
 	"sig": "Base64URL encoded signature of the attestation statement",
+	"pub_key": "Base64URL encoded public key structure"
 }
-
 ```
 
 *  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`.
@@ -309,6 +309,7 @@ stmt := base64url_enc(raw_stmt)
 ```
 
 *  **sig**: The attestation statement signature encoded in Base64URL. If `fmt` is set to `TPM`, the format of the signature is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) object.  If `fmt` is set to `SECURE_ENCLAVE`, then it is the signature of `raw_stmt`, encoded in Base64URL. It must be signed using $IdP_\text{ak-priv}$.
+*  **pub_key**: The public key representation of the key being certified ($IdP_\text{sk-pub}$), encoded in Base64URL. If `fmt` is set to `TPM`, it is the [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure. If `fmt` is set to `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` (SPKI) bytes.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -328,34 +329,27 @@ The binding statement is defined as follows:
 
 ```json
 {
-	"stmt": "Base64URL encoded claim",
-    "sig": "Base64URL encoded signature of `stmt`",
-	"fmt": "[TPM|SECURE_ENCLAVE]",
+	"fmt": "TPM|SECURE_ENCLAVE",
+	"stmt": "Base64URL encoded attestation statement",
+	"sig": "Base64URL encoded signature of the attestation statement",
+	"pub_key": "Base64URL encoded public key structure"
 }
 ```
 
-The attestation statement `stmt` can have two different formats depending on what is specified in the `fmt` field.
-
-*  **TPM**: The [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) structure defined in the TPM 2.0 specs.
-
-*  **SECURE\_ENCLAVE**: The attestation statement is the concatenation of the challenge sent by the server and the signing key digest.
-
-It can be represented by:
+*  **fmt**: The format of the presented attestation statement. It must be either `TPM` or `SECURE_ENCLAVE`.
+*  **stmt**: The attestation statement payload encoded in Base64URL. If `fmt` is set to `TPM`, the format of the statement is the [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is defined as follows:
 
 ```
 // pseudo-code
 c := "aHVzYmFuZHJpZG...cmxkYmFzZWJhbGxhcnI=" // replay-resistant challenge
 hash_alg := get_hash_alg_for_crypto_alg(chosen_alg)
-t := hash(signing_key_spki, hash_alg)
-raw_stmt := concat(c, t)
+d := hash(signing_key_spki, hash_alg)
+raw_stmt := concat(c, d)
 encoded_stmt := base64url_enc(raw_stmt)
 ```
 
-The signature `sig` also depends on the format specified in the `fmt` field:
-
-* **TPM**: [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs.
-
-* **Secure Enclave**: The content of `stmt` signed by $IdP_\text{ak-priv}$.
+*  **sig**: The attestation statement signature encoded in Base64URL. If `fmt` is set to `TPM`, the format of the signature is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) object. If `fmt` is set to `SECURE_ENCLAVE`, then it is the signature of `raw_stmt`, encoded in Base64URL. It must be signed using $IdP_\text{ak-priv}$.
+*  **pub_key**: The public key representation of the newly generated per-RP key ($RP_\text{sk-pub}$), encoded in Base64URL. If `fmt` is set to `TPM`, it is the [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure. If `fmt` is set to `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` (SPKI) bytes.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
@@ -553,8 +547,8 @@ To validate the registration statement, the IdP must do the following:
 
 1. Verify the challenge signature using $IdP_\text{sk-pub}$.
 1. Verify the attestation signature using $IdP_\text{ak-pub}$.
-1. Verify both $IdP_\text{sk-pub}$ and $IdP_\text{ak-pub}$ are present in the attestation statement.
-
+1. Verify that `pub_key` matches the certified object in `stmt` (for TPM, verifying that `nameAlg || hash(pub_key) == certifyInfo.name`; for Secure Enclave, verifying that `hash(pub_key) == stmt.spki_hash`).
+1. Verify that $IdP_\text{sk-pub}$ matches the public key extracted from `pub_key`.
 #### Public and attestation keys storage
 
 As IdPs are expected to already support DBSC, most likely they already handle public key storage. In addition to the public keys, attestation keys should also be stored in association to the user session.
@@ -583,8 +577,9 @@ The binding statement validation is done as follows:
 
 * The provided challenge isn't expired nor reutilized.
 * The provided attestation statement is valid when:
-	* The attestation mode is `SECURE_ENCLAVE` and the recreated signature of challenge and key digest concatenation is valid, or
-	* The attestation mode is `TPM`, and the TPMS\_ATTEST object holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214).
+	* The attestation mode is `SECURE_ENCLAVE`, the signature of the challenge and key digest concatenation is valid using $IdP_\text{ak-pub}$, and `hash(pub_key)` matches the key digest in `stmt`.
+	* The attestation mode is `TPM`, the TPMS\_ATTEST object holds [a valid attestation](https://trustedcomputinggroup.org/wp-content/uploads/Trusted-Platform-Module-2.0-Library-Part-1-Version-184_pub.pdf#page=214) signed by $IdP_\text{ak-pub}$, and `nameAlg || hash(pub_key)` matches `certifyInfo.name`.
+* The IdP extracts the Relying Party's public key from `pub_key` and computes the key digest (e.g., `SHA-256(SPKI)` for SAML assertions and/or RFC 7638 JWK Thumbprint for OIDC tokens) to populate the authentication assertion sent to the RP.
 
 #### SAML Assertions and OIDC tokens
 
@@ -596,7 +591,7 @@ There are a few capabilities that the browser must provide in order to support D
 
 #### Identity Provider registration statement
 
-When signing in to an IdP, the User Agent must provide not only the session key and the challenge signature, but also an attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature. The attestation key, statement, and signature are generated whenever the property `aik_required` is set in the `Secure-Session-Registration` header.
+When signing in to an IdP, the User Agent must provide not only the session key and the challenge signature, but also an attestation key that will be later used to verify per-RP keys, along with its attestation statement, signature, and public key material. The attestation key, statement, signature, and public key are generated whenever the property `aik_required` is set in the `Secure-Session-Registration` header.
 
 The registration statement is built as follows:
 
@@ -604,8 +599,9 @@ The registration statement is built as follows:
 1. Browser signs the challenge sent in the `Secure-Session-Registration` header using $IdP_\text{sk-priv}$.
 1. Browser computes a new attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ for the IdP.
 	* The attestation key should be keyed by the (IdP’s domain, session ID) pair.
-1. Browser computes the `attestation_claim` of $IdP_\text{sk-pub}$ using the attestation key $IdP_\text{ak}$.
-1. Browser computes the `attestation_signature` using $IdP_\text{ak-priv}$.
+1. Browser computes the `attestation_claim` (`stmt`) certifying $IdP_\text{sk-pub}$ using the attestation key $IdP_\text{ak}$.
+1. Browser computes the `attestation_signature` (`sig`) using $IdP_\text{ak-priv}$.
+1. Browser encodes the public key representation (`pub_key`) of $IdP_\text{sk-pub}$.
 
 The response is then encoded in the format of a DBSC proof and sent to the server.
 
@@ -628,9 +624,9 @@ This is done as follows:
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
 1. Browser computes the RP session key $RP_\text{sk}$ when the IdP instructs it to.
 1. Browser retrieves the attestation key keyed by (IdP domain, session ID).
-1. Browser computes the $RP_\text{sk}$'s attestation claim using the IdP's attestation key.
-1. Browser computes the attestation claim's signature using the IdP's attestation key.
-1. Browser computes the digest of $RP_\text{sk-pub}$.
+1. Browser computes the $RP_\text{sk}$'s attestation claim (`stmt`) using the IdP's attestation key.
+1. Browser computes the attestation claim's signature (`sig`) using the IdP's attestation key.
+1. Browser encodes the public key representation (`pub_key`) of $RP_\text{sk-pub}$.
 1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
 
 The response is also encoded in the format of a [DBSC proof](https://w3c.github.io/webappsec-dbsc/#dbsc-proof) and sent to the server.
