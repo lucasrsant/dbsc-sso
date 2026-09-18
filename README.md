@@ -2,7 +2,7 @@
 
 ## Authors
 
-* [Lucas Santos](), Google
+* [Lucas Santos](https://github.com/lucasrsant), Google
 * [Daniel Margolis](), Google
 * [Daniel Rubery](), Google
 * [Alex Ilin](), Google
@@ -10,8 +10,9 @@
 
 ## Contributors
 
-* [Arnar Birgisson](), Google
-* [Jan Wilken Dörrie](), Google
+* [Arnar Birgisson](https://github.com/arnar), Google
+* [Jan Wilken Dörrie](https://github.com/jdoerrie), Google
+* [Veena Soman](https://github.com/Veena11), Microsoft
 
 ## Participate
 
@@ -24,7 +25,7 @@
 
 - [Introduction](#introduction)
 - [Terminology](#terminology)
-- [How is it different from DBSC(E)?](#how-is-it-different-from-dbsce)
+- [Relationship to DBSC(E) and Convergence](#relationship-to-dbsce-and-convergence)
 - [Attack vector in depth](#attack-vector-in-depth)
 - [High-level design](#high-level-design)
   - [Identity Provider's session initialization](#identity-providers-session-initialization)
@@ -47,6 +48,7 @@
   - [User agent](#user-agent)
     - [Identity Provider registration statement](#identity-provider-registration-statement)
   - [Delegated key generation](#delegated-key-generation)
+    - [Native Local Key Helper (LKH) Integration](#native-local-key-helper-lkh-integration)
   - [Identity Provider binding statement](#identity-provider-binding-statement)
   - [Relying Party's session initialization](#relying-partys-session-initialization-1)
 - [Alternatives Considered](#alternatives-considered)
@@ -84,13 +86,14 @@ This document is inspired by the current [DBSC(E) Explainer](https://github.com/
 *  **AIK:** Acronym for **Attestation Identity Key.**
 *  **Key material:** Asymmetric key pair hardware-backed (either by TPMs on PCs or Secure Enclaves on Mac devices).
 
-## How is it different from DBSC(E)?
+## Relationship to DBSC(E) and Convergence
 
-While both proposals aim to protect the IdP <> RP dance, they target different use cases and threat models:
+Both **DBSC for SSO** and **DBSC(E)** address malware threats that fall outside the threat model of base DBSC by cryptographically binding sessions across parties:
 
-*   **DBSC for SSO** targets **consumer scenarios** where devices are unmanaged. It focuses on securing the hand-off between an Identity Provider (IdP) and a Relying Party (RP). It prevents attackers from using stolen IdP authentication tokens to establish sessions on their own devices by ensuring the RP session key is bound to the same device as the IdP session. It relies on the IdP's existing session trust (often Trust On First Use).
+*   **DBSC for SSO** originally addressed **consumer scenarios** with unmanaged devices, securing the hand-off between an Identity Provider (IdP) and a Relying Party (RP). It prevents attackers from using exfiltrated IdP authentication tokens on different devices by ensuring the RP session key is attested to reside on the same device as the IdP session, typically establishing initial trust on first use (TOFU).
+*   **DBSC(E)** addressed **enterprise scenarios** with managed devices, relying on a **"clean room" device registration** where the device is pre-provisioned and trusted by the enterprise. It introduced delegation to a "Local Key Helper" (such as OS identity brokers) to enforce binding against trusted device keys.
 
-*   **DBSC(E)** targets **enterprise scenarios** with managed devices. It relies on a **"clean room" device registration** process where the device is pre-provisioned and trusted by the organization. It introduces specific components like a "Local Key Helper" to enforce that binding keys are generated on these trusted devices, mitigating malware that might be present during the sign-in ceremony.
+Rather than maintaining separate specifications and browser code paths, the two designs converge into a unified flow. A single protocol mechanism handles both consumer (TOFU) and enterprise (clean room) trust anchors: enterprise IdPs that already have established device trust establish a standard DBSC session without requesting an attestation key (`aik_required` omitted) and route subsequent RP key attestation through native platform identity brokers, while consumer IdPs follow the browser-native TOFU path with an attestation key.
 
 ## Attack vector in depth
 
@@ -225,7 +228,10 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 Initializing the session with an Identity Provider has some extra steps in comparison to the standard DBSC. The attestation key is additional information required to later attest that new RP signing keys reside in the same device that the IdP has a bound session.
 
-During the IdP's DBSC session registration the new boolean parameter `aik_required` in the `Secure-Session-Registration` header indicates that the client should provide an Attestation Key in addition to the regular signing key.
+Depending on the device management state and trust model, session initialization follows one of two paths:
+
+1. **Pre-existing Device Registration (Clean-Room / Enterprise):** When the IdP can authenticate the device through an existing device trust relationship (such as a DeviceKey-signed Primary Refresh Token, client certificate over mTLS, or platform broker registration), the IdP establishes a standard DBSC session via `Secure-Session-Registration` but **omits the `aik_required` parameter**. Since the device is already trusted and registered with its own hardware-backed trust anchor validated by the Local Key Helper (LKH), there is no need for the browser to generate and register a new attestation identity key (AIK) with the IdP. The existing device trust anchor is leveraged by the Local Key Helper to attest subsequent Relying Party keys.
+2. **Standard / Unmanaged Registration (TOFU):** When no pre-existing device registration exists, the IdP triggers session registration and includes the boolean parameter `aik_required: ?1` in the `Secure-Session-Registration` header, indicating that the client should generate and provide an Attestation Key in addition to the regular signing key.
 
 The following diagram shows how a bound session is established between the User Agent and the IdP:
 
@@ -297,7 +303,10 @@ For `TPM`:
 	"alg": "ES256|RS256",
 	"stmt": "Base64URL encoded TPMS_ATTEST structure",
 	"sig": "Base64URL encoded TPMT_SIGNATURE structure",
-	"sub_key": "Base64URL encoded TPMT_PUBLIC structure"
+	"sub_key": "Base64URL encoded TPMT_PUBLIC structure",
+	"extra_claims": { // Optional: platform or broker metadata
+		// e.g., "helper_id", "binding_type", "attestation_format"
+	}
 }
 ```
 
@@ -308,7 +317,10 @@ For `SECURE_ENCLAVE`:
 	"fmt": "SECURE_ENCLAVE",
 	"alg": "ES256",
 	"stmt": "Base64URL encoded raw_stmt",
-	"sig": "Base64URL encoded signature of raw_stmt"
+	"sig": "Base64URL encoded signature of raw_stmt",
+	"extra_claims": { // Optional: platform or broker metadata
+		// e.g., "helper_id", "binding_type", "attestation_format"
+	}
 }
 ```
 
@@ -330,6 +342,7 @@ stmt := base64url_enc(raw_stmt)
 
 	> **Platform Implementation Note (Apple platforms):** On Apple platforms, `SecKeyCreateSignature` produces an ASN.1 DER-encoded ECDSA signature (`kSecKeyAlgorithmECDSASignatureMessageX962SHA256`). Implementations (such as Chromium / User Agents) MUST convert this ASN.1 DER signature to the raw IEEE P1363 format ($r \parallel s$, fixed 64 bytes for P-256) before Base64URL encoding into `sig`.
 *  **sub_key**: (Present only when `fmt` is `TPM`) The Base64URL-encoded [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure representing the public key of the subject key being certified ($IdP_\text{sk-pub}$). Omitted for `SECURE_ENCLAVE`.
+*  **extra_claims**: (Optional) A JSON object containing supplementary contextual metadata provided by the platform or Local Key Helper (e.g., `helper_id`, `binding_type`, or specific attestation claims). If present, validators can inspect these claims for policy enforcement.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -355,7 +368,10 @@ For `TPM`:
 	"alg": "ES256|RS256",
 	"stmt": "Base64URL encoded TPMS_ATTEST structure",
 	"sig": "Base64URL encoded TPMT_SIGNATURE structure",
-	"sub_key": "Base64URL encoded TPMT_PUBLIC structure"
+	"sub_key": "Base64URL encoded TPMT_PUBLIC structure",
+	"extra_claims": { // Optional: platform or broker metadata
+		// e.g., "helper_id", "binding_type", "attestation_format"
+	}
 }
 ```
 
@@ -366,7 +382,10 @@ For `SECURE_ENCLAVE`:
 	"fmt": "SECURE_ENCLAVE",
 	"alg": "ES256",
 	"stmt": "Base64URL encoded raw_stmt",
-	"sig": "Base64URL encoded signature of raw_stmt"
+	"sig": "Base64URL encoded signature of raw_stmt",
+	"extra_claims": { // Optional: platform or broker metadata
+		// e.g., "helper_id", "binding_type", "attestation_format"
+	}
 }
 ```
 
@@ -388,6 +407,7 @@ stmt := base64url_enc(raw_stmt)
    * If `fmt` is `TPM`, it is the [TPMT\_SIGNATURE](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=144) structure defined in the TPM 2.0 specs.
    * If `fmt` is `SECURE_ENCLAVE`, it is the ECDSA signature over `raw_stmt` signed using $IdP_\text{ak-priv}$, formatted as a raw IEEE P1363 signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per [RFC 7518 Section 3.4](https://www.rfc-editor.org/rfc/rfc7518#section-3.4)), encoded in Base64URL. On Apple platforms, user agents MUST convert the ASN.1 DER signature from `SecKeyCreateSignature` to the raw IEEE P1363 format ($r \parallel s$, fixed 64 bytes for P-256) before Base64URL encoding into `sig`.
 *  **sub_key**: (Present only when `fmt` is `TPM`) The Base64URL-encoded [TPMT\_PUBLIC](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=151) structure representing the public key of the per-RP key ($RP_\text{sk-pub}$). Omitted for `SECURE_ENCLAVE`.
+*  **extra_claims**: (Optional) A JSON object containing supplementary contextual metadata provided by the platform or Local Key Helper (e.g., `helper_id`, `binding_type`, or specific attestation claims). If present, validators can inspect these claims for policy enforcement.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
@@ -650,6 +670,7 @@ The binding statement validation is done as follows:
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify `sig` over `stmt` using the stored $IdP_\text{ak-pub}$ per TPM 2.0 specs.
 		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
+1. If present, verify any contextual attributes in `extra_claims` against IdP security policy (e.g., verifying expected helper identifiers or clean-room binding semantics).
 
 #### SAML Assertions and OIDC tokens
 
@@ -686,6 +707,18 @@ The User Agent only creates such a key if and only if the user has granted 3PC (
 As the key needs to be generated while the user is signing in to the Relying Party, this operation must be done synchronously. However, as TEE key generation is generally slow (might take up to 1s to finish), this can lead to bad user experience due to considerable latency added to the sign in flow.
 
 To overcome this issue, browsers are expected to pre-generate keys as soon as the IdP's session is established. The User Agent triggers the key creation whenever it sees the `aik_required` parameter in the `Secure-Session-Registration` header. This is a strong signal that per-RP keys are to be asked by the IdP.
+
+#### Native Local Key Helper (LKH) Integration
+
+In enterprise scenarios where devices are managed and enrolled in corporate device management (MDM), browsers can delegate key generation and attestation to native, platform-level identity brokers acting as Local Key Helpers (LKH). Examples of platform brokers include:
+* **Windows:** Web Account Manager (WAM) and CloudAP plugins.
+* **macOS / iOS:** Enterprise SSO extensions (`ASAuthorizationProviderExtension`).
+* **Android:** Account Authenticator and Keystore brokers.
+* **ChromeOS:** Verified Access and enterprise platform keys.
+
+These brokers already hold hardware-backed, pre-provisioned device keys and understand platform-specific routing rules (e.g. via Apple's extensible SSO configuration, Windows CloudAP registration, or enterprise policies). 
+
+When a user authenticates against an IdP configured to use an OS broker, the User Agent routes the key generation request directly through the platform broker. The broker generates the per-RP key, attests co-residency against the pre-provisioned device key or enterprise AIK, and populates the binding statement (including any optional broker metadata in `extra_claims`). Because broker discovery and invocation happen natively within the platform, helper selection remains an implementation detail of the operating system and browser runtime rather than requiring dedicated protocol negotiation.
 
 ### Identity Provider binding statement
 
