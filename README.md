@@ -771,7 +771,7 @@ These brokers already hold hardware-backed, pre-provisioned device keys and unde
 When a user authenticates against an IdP configured to use an LKH, the key lifecycle operates as follows:
 
 1. **Key Generation and Attestation:** The User Agent routes the key generation request directly through the platform LKH. The LKH generates a securely stored per-RP key ($RP_\text{sk}$), attests co-residency against the pre-provisioned device key or enterprise AIK, and returns the binding statement (including `sub_key` and any optional broker metadata in `extra_claims`) together with an opaque key handle / `KeyId` to the browser.
-2. **Signature Generation:** Because the private key material resides in the LKH's secure storage, the browser does not access $RP_\text{sk-priv}$ directly. Instead, when signing the initial challenge in the binding response, producing the proof for the RP's `Secure-Session-Registration`, or signing periodic `Secure-Session-Refresh` requests, the User Agent delegates signature creation to the platform LKH using the stored key handle.
+2. **Signature Generation:** Because the private key material resides in the LKH's secure storage, the browser does not access $RP_\text{sk-priv}$ directly. Instead, when producing the proof for the RP's `Secure-Session-Registration` or signing periodic `Secure-Session-Refresh` requests, the User Agent delegates signature creation to the platform LKH using the stored key handle.
 3. **Key Deletion:** When the user clears browsing data or cookies for the Relying Party origin, the User Agent instructs the LKH to delete the associated key handle.
 
 Because LKH discovery and invocation happen natively within the platform, helper selection remains an implementation detail of the operating system and browser runtime rather than requiring dedicated protocol negotiation.
@@ -781,16 +781,13 @@ An LKH is considered **authorized** for an IdP origin only when the device admin
 ### Identity Provider binding statement
 
 When signing in to Relying Parties, the Identity Provider needs to assert that the RP key comes from the same device as originally signed in to the IdP.
-
 This is done as follows:
-
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
-1. Browser identifies the IdP session matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header, where the IdP domain is the registrable domain of the issuing request's host. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session matches `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
+1. Browser identifies the IdP session matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session matches `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 1. Depending on the mutually exclusive trust route established for that session:
 	* **Enterprise / Native LKH Path:** If an authorized platform Local Key Helper is mapped to the IdP origin (in which case all cryptographic operations for the session are delegated to the LKH):
 		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge and RP target origin.
 		2. The platform LKH generates $RP_\text{sk}$, attests it against the enterprise hardware trust anchor, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$.
-		3. Browser uses the key handle via the LKH to sign the challenge sent by the IdP.
 	* **Consumer / Browser-Managed Path:** Otherwise, if no Local Key Helper is mapped to the IdP origin and an attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is stored for the session:
 		1. Browser generates the per-RP key pair ($RP_\text{sk-pub}, RP_\text{sk-priv}$).
 		1. Browser computes the attestation statement (`stmt`):
@@ -798,10 +795,9 @@ This is done as follows:
 			* For `SECURE_ENCLAVE`: Browser encodes $RP_\text{sk-pub}$ as a DER `SubjectPublicKeyInfo`, computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(sub_key_bytes, hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
 		1. Browser computes the attestation signature (`sig`) using $IdP_\text{ak-priv}$. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
 		1. Browser includes the certified public key as `sub_key`, Base64URL-encoded: `TPMT_PUBLIC` for `TPM`, DER `SubjectPublicKeyInfo` for `SECURE_ENCLAVE`.
-		1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
 	* If neither an authorized platform Local Key Helper mapping nor an associated browser AIK is available, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
-The response is encoded in the format of a [DBSC proof](https://w3c.github.io/webappsec-dbsc/#dbsc-proof) (with the binding statement in the payload) and sent to the server.
+The resulting binding statement JSON object is Base64URL-encoded and sent to the Identity Provider in the `Secure-Session-KeyBinding` header when retrying the authentication request.
 
 Once this binding statement is verified, the IdP can then issue an authentication token to be redirected to the RP.
 
