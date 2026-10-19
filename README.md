@@ -156,7 +156,7 @@ sequenceDiagram
 	participant r as Relying Party
 	participant i as Identity Provider
 
-	note over u, i: DBSC session already initiated between the User agent and the IDP<br>UA's attestation key is trusted on first use
+	note over u, i: DBSC session already initiated between the user agent and the IDP<br>UA's attestation key is trusted on first use or via LKH.
 
 	u->>r: Sign in request
 	r->>u: SAML/OIDC Authn request
@@ -200,9 +200,9 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	The new signing key must be tied to the Relying Party's [origin](https://developer.mozilla.org/en-US/docs/Glossary/Origin) by the browser. This serves as a protection mechanism against malicious RPs trying to *guess* unique hardware-backed identifiers. The user agent only shares the public key material with the RP that is supposed to have access to it.
 
-	The key access control model is discussed in detail [further](#key-access-control) in this document.
+	The key access control model is discussed in detail [further](#key-access-control-and-lifecycle) in this document.
 
-* **Signing key generation:** This step relies on securely-stored keys generation, which can be either on TPMs (Windows and Linux), Secure Enclave (macOS), or enterprise LKHs. These keys are the same used in the standard DBSC implementation.
+* **Signing key generation:** This step relies on securely-stored keys generation, which can be either on TPMs (Windows and Linux), Secure Enclave (macOS), or enterprise LKHs. Browser-managed keys are the same as in standard DSBC.
 
 * **Browser sends the key digest to the IdP:** When the browser finishes computing the binding statement, it retries the request that triggered the key generation, appending the new header `Secure-Session-KeyBinding` carrying the statement.
 
@@ -231,7 +231,7 @@ Initializing the session with an Identity Provider has some extra steps in compa
 
 Depending on the device management state and trust model, session initialization follows one of two paths:
 
-1. **Pre-existing Device Registration (Clean-Room / Enterprise):** When the IdP can authenticate the device through an existing device trust relationship (such as a DeviceKey-signed Primary Refresh Token, client certificate over mTLS, or platform broker registration), the IdP establishes a standard DBSC session via `Secure-Session-Registration` but **omits the `aik_required` parameter**. Since the device is already trusted and registered with its own trust anchor validated by the Local Key Helper (LKH), there is no need for the browser to generate and register a new attestation identity key (AIK) with the IdP. The existing device trust anchor is leveraged by the LKH to attest subsequent Relying Party keys.
+1. **Pre-existing Device Registration (Clean-Room / Enterprise):** When the IdP can authenticate the device through an existing device trust relationship (such as a DeviceKey-signed Primary Refresh Token, client certificate over mTLS, or platform broker registration), the IdP establishes a standard DBSC session via `Secure-Session-Registration` but **omits the `aik_required` parameter**. Since the device is already trusted and registered with its own trust anchor validated by the Local Key Helper (LKH), there is no need for the browser to generate and register a new attestation identity key (AIK) with the IdP. The existing device trust anchor is leveraged by the LKH to attest subsequent Relying Party keys. IdPs without device trust **MUST** use TOFU.
 2. **Standard / Unmanaged Registration (TOFU):** When no pre-existing device registration exists, the IdP triggers session registration and includes the boolean parameter `aik_required: ?1` in the `Secure-Session-Registration` header, indicating that the client should generate and provide an Attestation Key in addition to the regular signing key.
 
 The following diagram shows how a bound session is established between the User Agent and the IdP:
@@ -247,7 +247,7 @@ sequenceDiagram
 	
 	alt Pre-existing Device Registration (Enterprise / LKH)
 		note over u, i: Sign in ceremony
-		u->>i: Authenticate (via password, mTLS, or PRT)
+		u->>i: Authenticate device<br>(IdP-specific device binding artifact, mTLS client certificate, platform broker registration)
 		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (omits aik_required), Secure-Session-Challenge=...
 
 		note over i, l: Background DBSC registration
@@ -275,12 +275,12 @@ Identity Provider session binding flow.
 Each step in the diagram is detailed below:
 
 **Sign in ceremony:**
-* **Pre-existing Device Registration (Enterprise):** The User Agent authenticates the device using existing selected mechanism (mTLS cerficiate, password, PRT). Upon successful authentication, the IdP responds with `Secure-Session-Registration` omitting `aik_required`, initiating standard DBSC session registration.
+* **Pre-existing Device Registration (Enterprise):** The User Agent authenticates the device using existing selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, the IdP responds with `Secure-Session-Registration` omitting `aik_required`, initiating standard DBSC session registration.
 * **Standard / Unmanaged Registration (TOFU):** The sign-in ceremony proceeds normally. Upon successful authentication, the IdP includes the `aik_required: ?1` parameter in the `Secure-Session-Registration` header, signaling that the client **must** provide cryptographic proof of the relationship between the session signing key and a newly generated attestation key.
 
 **Key generation and attestation:** This step is performed asynchronously in the background:
-* In the **Enterprise / LKH** path, only standard DBSC session key operations are required: the client creates a signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ and signs the challenge sent by the server. Because the device is already trusted and its trust anchor is managed by the Local Key Helper, no attestation identity key (AIK) is generated or registered. The challenge signing operation is delegated to the LKH.
-* In the **Consumer / TOFU** path, the client creates both signing and attestation keys in the TEE:
+* In the **Enterprise / LKH** path, the trigger for using the Local Key Helper is the presence of an authorized LKH mapping configured for the IdP origin. When this mapping is detected, the browser delegates **all** cryptographic operations for the session to the LKH so that browser-managed and LKH-managed keys are never mixed on the same session: the **LKH** creates the session signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$, retains $IdP_\text{sk-priv}$ (returning an opaque key handle to the browser), and signs the challenge sent by the server. Because the device is already trusted and its trust anchor is managed by the LKH, no browser-managed attestation identity key (AIK) is generated or registered (even if `aik_required` were present).
+* In the **Consumer / TOFU** path (when no LKH is mapped to the IdP origin and `aik_required: ?1` is present), the browser creates both signing and attestation keys in the TEE:
 	1. A new signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ is created. $IdP_\text{sk-pub}$ is used to register the IdP DBSC session.
 	1. The challenge sent by the server is signed with $IdP_\text{sk-priv}$.
 	1. A new attestation key pair $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is created and used to create an attestation claim for $IdP_\text{sk}$.
@@ -320,7 +320,7 @@ For `TPM`:
   "stmt": "Base64URL encoded TPMS_ATTEST structure",
   "sig": "Base64URL encoded TPMT_SIGNATURE structure",
   "sub_key": "Base64URL encoded TPMT_PUBLIC structure",
-  // optional: container for enterprise/LKH-specific metadata (e.g. helper_id, binding_type)
+  // optional: container for enterprise/LKH-specific metadata (e.g. helper_id, binding_type). Not covered by `sig`.
   "extra_claims": { ... }
 }
 ```
@@ -334,12 +334,12 @@ For `SECURE_ENCLAVE`:
 	"stmt": "Base64URL encoded raw_stmt",
 	"sig": "Base64URL encoded signature of raw_stmt",
 	"sub_key": "Base64URL encoded SubjectPublicKeyInfo structure",
-	// optional: container for enterprise/LKH-specific metadata (e.g. helper_id, binding_type)
+	// optional: container for enterprise/LKH-specific metadata (e.g. helper_id, binding_type). Not covered by `sig`.
 	"extra_claims": { ... }
 }
 ```
 
-*  **fmt**: The format of the presented attestation statement (e.g., `TPM`, `SECURE_ENCLAVE`, or extensible local key helper formats such as `KEYGUARD`). The attestation format is decoupled from the host operating system. The IdP **MUST** store this value with the attestation key record; it is the value the [binding statement validation](#binding-statement-validation) branches on.
+*  **fmt**: The format of the presented attestation statement (e.g., `TPM`, `SECURE_ENCLAVE`, or extensible local key helper formats such as `KEYGUARD`). The attestation format is decoupled from the host operating system. Any attestation format **MUST** ensure that the signed bytes in `stmt` cryptographically commit to both `hash(challenge, hash_alg(alg))` and `sub_key`, as both `TPM` and `SECURE_ENCLAVE` do. The IdP **MUST** store this value with the attestation key record; it is the value the [binding statement validation](#binding-statement-validation) branches on.
 *  **alg**: The **signature** algorithm of the attestation signing key ($IdP_\text{ak}$), e.g., `ES256` or `RS256` — not a digest algorithm. The hash algorithm used for hashing the challenge and computing the subject key digest is written `hash_alg(alg)` and is derived from it (e.g. SHA-256 for `ES256`/`RS256`, SHA-384 for `ES384`). The IdP MUST store `alg` with the attestation key; the binding statement does not repeat it.
 *  **stmt**: The attestation statement payload encoded in Base64URL:
    * If `fmt` is `TPM`, it is the [TPMS\_ATTEST](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-2-Structures-01.38.pdf#page=126) object certifying `sub_key`, generated with `qualifyingData` set to the hashed challenge `hash(challenge, hash_alg(alg))`. Hashing the challenge ensures a fixed payload size across the hardware/enclave boundary.
@@ -361,7 +361,7 @@ stmt := base64url_enc(raw_stmt)
    * If `fmt` is `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` ([RFC 5280 Section 4.1.2.7](https://www.rfc-editor.org/rfc/rfc5280#section-4.1.2.7)).
 
 	The field is required for both formats. `stmt` only ever carries a *digest* of the subject key, so without `sub_key` the IdP cannot recover the key material itself, and it cannot re-derive that digest under any other encoding.
-*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g., helper identifiers or binding semantics).
+*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g., helper identifiers or binding semantics). This property is not covered by `sig`, thus if IdP needs to trust the values in it, their own LKH implementation should handle the signature.
 
 **Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -396,8 +396,8 @@ For `TPM`:
 	"stmt": "Base64URL encoded TPMS_ATTEST structure",
 	"sig": "Base64URL encoded TPMT_SIGNATURE structure",
 	"sub_key": "Base64URL encoded TPMT_PUBLIC structure",
-	"extra_claims": { // Optional: platform or broker metadata
-		// e.g., "helper_id", "binding_type", "attestation_format"
+	"extra_claims": { // Optional: platform or broker metadata. Not covered by `sig`.
+		// e.g., "helper_id", "binding_type"
 	}
 }
 ```
@@ -409,7 +409,7 @@ For `SECURE_ENCLAVE`:
 	"stmt": "Base64URL encoded raw_stmt",
 	"sig": "Base64URL encoded signature of raw_stmt",
 	"sub_key": "Base64URL encoded SubjectPublicKeyInfo structure",
-	"extra_claims": { // Optional: platform or broker metadata
+	"extra_claims": { // Optional: platform or broker metadata. Not covered by `sig`.
 		// e.g., "helper_id", "binding_type", "attestation_format"
 	}
 }
@@ -435,7 +435,7 @@ stmt := base64url_enc(raw_stmt)
    * If the stored `fmt` is `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` ([RFC 5280 Section 4.1.2.7](https://www.rfc-editor.org/rfc/rfc5280#section-4.1.2.7)).
 
 	The field is required for both formats. The IdP has to forward a trusted key digest to the RP (`dbsc_trusted_key_digest` in OIDC, `<dbsc:TrustedKey digest="...">` in SAML), and that digest is computed over the canonical JWK of $RP_\text{sk-pub}$ ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)) — a different encoding from the one hashed into `raw_stmt`. The IdP therefore needs the key itself, not just a digest of it.
-*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g. `helper_id`, `binding_type`, or attestation policies).
+*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g. `helper_id`, `binding_type`, or attestation policies). This property is not covered by `sig`, thus if IdP needs to trust the values in it, their own LKH implementation should handle the signature.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
@@ -710,6 +710,10 @@ The binding statement validation is done as follows:
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify `sig` over `stmt` using the loaded verification key ($IdP_\text{ak-pub}$ or pre-registered enterprise device key) per TPM 2.0 specs.
 		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
+		* **Other formats**:
+		1. If the IdP does not support the stored `fmt`, it **MUST** reject the binding statement.
+		1. Otherwise, the IdP verifies `stmt`, `sig`, and `sub_key` according to that format's specification, ensuring that `sig` is valid under the loaded verification key and that the signed bytes in `stmt` commit to both `hash(challenge, hash_alg(alg))` and `sub_key`.
+		1. Extract the public key parameters from `sub_key`, construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
 1. If present, verify any contextual attributes in `extra_claims` against IdP security policy (e.g., verifying expected helper identifiers or clean-room binding semantics).
 #### SAML Assertions and OIDC tokens
 
@@ -721,9 +725,9 @@ There are a few capabilities that the browser must provide in order to support D
 
 #### Identity Provider registration statement
 
-When signing in to an IdP, the User Agent must provide not only the session key and the challenge signature, but also an attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature. The attestation key, statement, and signature are generated whenever the parameter `aik_required` is set in the `Secure-Session-Registration` header.
+When signing in to an IdP, if an authorized Local Key Helper is mapped to the IdP origin, the User Agent delegates session key generation and challenge signing to the LKH and sends a standard DBSC proof (ignoring `aik_required` if present, so browser-managed and LKH-managed keys are never mixed). Otherwise, when no LKH is mapped to the IdP origin and the `aik_required` parameter is set in the `Secure-Session-Registration` header, the User Agent must provide not only the session key and the challenge signature, but also a browser-managed attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature.
 
-The registration statement is built as follows:
+On the browser-managed TOFU path, the registration statement is built as follows:
 
 1. Browser computes a new session key ($IdP_\text{sk-pub}, IdP_\text{sk-priv}$) for the IdP.
 1. Browser signs the challenge sent in the `Secure-Session-Registration` header using $IdP_\text{sk-priv}$.
@@ -744,7 +748,9 @@ The User Agent creates a new key pair when instructed by the Identity Provider v
 The User Agent only creates such a key if and only if:
 1. The user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header;
 2. A valid Identity Provider session matching `provider_session_id` is found and the issuing request URL is in scope for that session; and
-3. The browser finds either an active session-associated Attestation Identity Key (AIK) or an authorized platform Local Key Helper route configured for the IdP origin.
+3. Depending on the session's key management mode (which are mutually exclusive, as the browser delegates all cryptographic operations to the LKH whenever an IdP-to-LKH mapping exists):
+	* An authorized platform Local Key Helper is mapped to the IdP origin (LKH-managed session); or
+	* No Local Key Helper is mapped to the IdP origin, and the browser holds an active session-associated Attestation Identity Key (AIK) for that session (browser-managed TOFU session).
 
 Otherwise, the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
@@ -754,7 +760,7 @@ To overcome this issue, browsers on the browser-managed TOFU path are expected t
 
 #### Native Local Key Helper Integration
 
-In enterprise scenarios where devices are managed and enrolled in corporate device management (MDM), browsers can delegate key generation, attestation, and signature operations to a installed binary provided by the Identity Provider acting as the Local Key Helpers. The LKH can interact with platform brokers such as:
+In enterprise scenarios where devices are managed and enrolled in corporate device management (MDM), browsers can delegate key generation, attestation, and signature operations to an installed binary provided by the IdP or a third party acting as the Local Key Helper. The LKH can interact with platform brokers such as:
 * **Windows:** Web Account Manager (WAM) and CloudAP plugins.
 * **macOS / iOS:** Enterprise SSO extensions (`ASAuthorizationProviderExtension`).
 * **Android:** Account Authenticator and Keystore brokers.
@@ -770,6 +776,8 @@ When a user authenticates against an IdP configured to use an LKH, the key lifec
 
 Because LKH discovery and invocation happen natively within the platform, helper selection remains an implementation detail of the operating system and browser runtime rather than requiring dedicated protocol negotiation.
 
+An LKH is considered **authorized** for an IdP origin only when the device administrator (via enterprise policy or MDM configuration) explicitly maps that IdP origin to the helper. The browser **MUST** use only the helper mapped to the requesting IdP origin and ignore any other helper registered on the OS, preventing malware from installing a rogue helper to create per-RP keys and binding statements; conversely, a helper only serves the IdP origins mapped to it. Because this mapping is provisioned out-of-band rather than negotiated via HTTP headers, sites cannot probe which helpers are installed on the device.
+
 ### Identity Provider binding statement
 
 When signing in to Relying Parties, the Identity Provider needs to assert that the RP key comes from the same device as originally signed in to the IdP.
@@ -778,8 +786,12 @@ This is done as follows:
 
 1. Browser verifies that IdP has 3PC access (meaning, cookies from IdP work in a context that is 3P to the IdP), otherwise it fails the operation.
 1. Browser identifies the IdP session matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header, where the IdP domain is the registrable domain of the issuing request's host. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session matches `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
-1. Depending on the trust route established for that session:
-	* **Consumer / Browser-Managed Path:** If an attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is stored for the session:
+1. Depending on the mutually exclusive trust route established for that session:
+	* **Enterprise / Native LKH Path:** If an authorized platform Local Key Helper is mapped to the IdP origin (in which case all cryptographic operations for the session are delegated to the LKH):
+		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge and RP target origin.
+		2. The platform LKH generates $RP_\text{sk}$, attests it against the enterprise hardware trust anchor, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$.
+		3. Browser uses the key handle via the LKH to sign the challenge sent by the IdP.
+	* **Consumer / Browser-Managed Path:** Otherwise, if no Local Key Helper is mapped to the IdP origin and an attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is stored for the session:
 		1. Browser generates the per-RP key pair ($RP_\text{sk-pub}, RP_\text{sk-priv}$).
 		1. Browser computes the attestation statement (`stmt`):
 			* For `TPM`: Browser encodes $RP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
@@ -787,11 +799,7 @@ This is done as follows:
 		1. Browser computes the attestation signature (`sig`) using $IdP_\text{ak-priv}$. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
 		1. Browser includes the certified public key as `sub_key`, Base64URL-encoded: `TPMT_PUBLIC` for `TPM`, DER `SubjectPublicKeyInfo` for `SECURE_ENCLAVE`.
 		1. Browser signs the challenge sent by the IdP using $RP_\text{sk-priv}$.
-	* **Enterprise / Native LKH Path:** If an authorized platform Local Key Helper is configured for the IdP origin:
-		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge and RP target origin.
-		2. The platform LKH generates $RP_\text{sk}$, attests it against the enterprise hardware trust anchor, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$.
-		3. Browser uses the key handle via the LKH to sign the challenge sent by the IdP.
-	* If neither an associated browser AIK nor an authorized platform Local Key Helper is available, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
+	* If neither an authorized platform Local Key Helper mapping nor an associated browser AIK is available, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
 The response is encoded in the format of a [DBSC proof](https://w3c.github.io/webappsec-dbsc/#dbsc-proof) (with the binding statement in the payload) and sent to the server.
 
