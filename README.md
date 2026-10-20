@@ -770,9 +770,9 @@ These brokers already hold hardware-backed, pre-provisioned device keys and unde
 
 When a user authenticates against an IdP configured to use an LKH, the key lifecycle operates as follows:
 
-1. **Key Generation and Attestation:** The User Agent routes the key generation request directly through the platform LKH. The LKH generates a securely stored per-RP key ($RP_\text{sk}$), attests co-residency against the pre-provisioned device key or enterprise AIK, and returns the binding statement (including `sub_key` and any optional broker metadata in `extra_claims`) together with an opaque key handle / `KeyId` to the browser.
-2. **Signature Generation:** Because the private key material resides in the LKH's secure storage, the browser does not access $RP_\text{sk-priv}$ directly. Instead, when producing the proof for the RP's `Secure-Session-Registration` or signing periodic `Secure-Session-Refresh` requests, the User Agent delegates signature creation to the platform LKH using the stored key handle.
-3. **Key Deletion:** When the user clears browsing data or cookies for the Relying Party origin, the User Agent instructs the LKH to delete the associated key handle.
+1. **Key Generation and Attestation:** The User Agent routes the key generation request directly through the platform LKH. The LKH generates a securely stored per-RP key ($RP_\text{sk}$), attests co-residency against the pre-provisioned device key or enterprise AIK, and returns the binding statement (including `sub_key` and any optional broker metadata in `extra_claims`) together with an opaque key handle / `KeyId` to the browser. If this operation fails or times out, the User Agent **MUST NOT** fall back to a browser-managed key, as it would not match the IdP's stored device record.
+2. **Signature Generation:** Because the private key material resides in the LKH's secure storage, the browser does not access $RP_\text{sk-priv}$ directly. Instead, when producing the proof for the RP's `Secure-Session-Registration` or signing periodic `Secure-Session-Refresh` requests, the User Agent delegates signature creation to the platform LKH using the stored key handle. If signing fails during a session refresh, a transient error (e.g., a timeout or temporary helper unavailability) skips that refresh attempt, whereas a permanent error (e.g., an unrecognized or invalidated key handle) terminates the bound session.
+3. **Key Deletion:** When the user clears browsing data or cookies for the Relying Party origin, the User Agent instructs the LKH to delete the associated key handle. Even if the LKH is unreachable or fails to complete the deletion, the User Agent **MUST** still discard its stored key handle and remove the bound session.
 
 Because LKH discovery and invocation happen natively within the platform, helper selection remains an implementation detail of the operating system and browser runtime rather than requiring dedicated protocol negotiation.
 
@@ -787,7 +787,7 @@ This is done as follows:
 1. Depending on the mutually exclusive trust route established for that session:
 	* **Enterprise / Native LKH Path:** If an authorized platform Local Key Helper is mapped to the IdP origin (in which case all cryptographic operations for the session are delegated to the LKH):
 		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge and RP target origin.
-		2. The platform LKH generates $RP_\text{sk}$, attests it against the enterprise hardware trust anchor, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$.
+		2. The platform LKH generates $RP_\text{sk}$, attests it against the enterprise hardware trust anchor, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$. If the LKH fails or times out, the browser aborts the operation and does not reply to the Identity Provider.
 	* **Consumer / Browser-Managed Path:** Otherwise, if no Local Key Helper is mapped to the IdP origin and an attestation key $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is stored for the session:
 		1. Browser generates the per-RP key pair ($RP_\text{sk-pub}, RP_\text{sk-priv}$).
 		1. Browser computes the attestation statement (`stmt`):
