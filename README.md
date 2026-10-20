@@ -202,7 +202,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	The key access control model is discussed in detail [further](#key-access-control-and-lifecycle) in this document.
 
-* **Signing key generation:** This step relies on securely-stored keys generation, which can be either on TPMs (Windows and Linux), Secure Enclave (macOS), or enterprise LKHs. Browser-managed keys are the same as in standard DSBC.
+* **Signing key generation:** This step relies on securely-stored keys generation, which can be either on TPMs (Windows and Linux), Secure Enclave (macOS), or secure storage chosen by an enterprise LKHs. Browser-managed keys are the same as in standard DSBC. The user agent treats a LKH-based key as an opaque key handler.
 
 * **Browser sends the key digest to the IdP:** When the browser finishes computing the binding statement, it retries the request that triggered the key generation, appending the new header `Secure-Session-KeyBinding` carrying the statement.
 
