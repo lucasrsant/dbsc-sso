@@ -283,6 +283,7 @@ Each step in the diagram is detailed below:
 	1. A new signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ is created. $IdP_\text{sk-pub}$ is used to register the IdP DBSC session.
 	1. The challenge sent by the server is signed with $IdP_\text{sk-priv}$.
 	1. A new attestation key pair $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is created and used to create an attestation claim for $IdP_\text{sk}$.
+
 **Registration statement:** When `aik_required` is omitted on the enterprise path, the client sends a standard [DBSC proof](https://w3c.github.io/webappsec-dbsc/#format-jwt) containing only the session signing key. When `aik_required: ?1` is set (either on the browser-managed TOFU path or via the enterprise-policy-mapped LKH), a new variant of the DBSC proof takes place to accommodate both subject and attestation keys. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
 
 ```json5
