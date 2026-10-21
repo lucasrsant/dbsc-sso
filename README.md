@@ -407,7 +407,7 @@ For `SECURE_ENCLAVE`:
 	"sig": "Base64URL encoded signature of raw_stmt",
 	"sub_key": "Base64URL encoded SubjectPublicKeyInfo structure",
 	"extra_claims": { // Optional: platform or broker metadata. Not covered by `sig`.
-		// e.g., "helper_id", "binding_type", "attestation_format"
+		// e.g., "helper_id", "binding_type"
 	}
 }
 ```
@@ -656,6 +656,10 @@ To validate the registration statement, the IdP must do the following:
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify that $IdP_\text{sk-pub}$ matches the public key parameters extracted from `sub_key`.
 		1. Verify `sig` over `stmt` using $IdP_\text{ak-pub}$ per TPM 2.0 specs.
+	* **Other formats**:
+		1. If the IdP does not support `fmt`, it **MUST** reject the registration statement.
+		1. Otherwise, the IdP verifies `stmt`, `sig`, and `sub_key` according to that format's specification, ensuring that `sig` is valid under $IdP_\text{ak-pub}$, that the signed bytes in `stmt` commit to both `hash(challenge, hash_alg(alg))` and `sub_key`, and that $IdP_\text{sk-pub}$ matches the public key parameters extracted from `sub_key`.
+1. If present, verify any contextual attributes in `extra_claims` against IdP security policy. Because `extra_claims` is not covered by `sig`, the IdP **MUST NOT** trust its values for security policy decisions unless they are cryptographically authenticated (e.g., covered by the format's signed bytes or an LKH signature).
 
 #### Public and attestation keys storage
 
@@ -707,11 +711,11 @@ The binding statement validation is done as follows:
 		1. Decode `sub_key` as `TPMT_PUBLIC` and verify that `stmt.certifyInfo.name` matches `nameAlg || hash(sub_key)`.
 		1. Verify `sig` over `stmt` using the loaded verification key ($IdP_\text{ak-pub}$ or pre-registered enterprise device key) per TPM 2.0 specs.
 		1. Extract the public key parameters from `sub_key` (`TPMT_PUBLIC`), construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
-		* **Other formats**:
+	* **Other formats**:
 		1. If the IdP does not support the stored `fmt`, it **MUST** reject the binding statement.
 		1. Otherwise, the IdP verifies `stmt`, `sig`, and `sub_key` according to that format's specification, ensuring that `sig` is valid under the loaded verification key and that the signed bytes in `stmt` commit to both `hash(challenge, hash_alg(alg))` and `sub_key`.
 		1. Extract the public key parameters from `sub_key`, construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
-1. If present, verify any contextual attributes in `extra_claims` against IdP security policy (e.g., verifying expected helper identifiers or clean-room binding semantics).
+1. If present, verify any contextual attributes in `extra_claims` against IdP security policy (e.g., verifying expected helper identifiers or clean-room binding semantics). Because `extra_claims` is not covered by `sig`, the IdP **MUST NOT** trust its values for security policy decisions unless they are cryptographically authenticated (e.g., covered by the format's signed bytes or an LKH signature).
 #### SAML Assertions and OIDC tokens
 
 The SAML assertion or OIDC token returned to the User Agent after a successful login must contain both the trusted key digest (or certificate fingerprint) and the algorithm used (SHA-256, 384, or 512) in the fields indicated in this section.
