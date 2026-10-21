@@ -255,7 +255,7 @@ sequenceDiagram
 		u->>l: Compute IdP signing key, challenge signature<br>(and AIK attestation if aik_required: ?1)
 		l->>u: Return (IDPsk-pub, signature [, IDPaik, attStatement, attSignature])
 		u->>i: Post (IDPsk-pub, signature [, IDPaik, attStatement, attSignature])
-		note over i: Validate signature (and attestation if present)<br>Store IDPsk-pub (and IDPaik if provided; device trusted via LKH)
+		note over i: Validate signature (and attestation if present)<br>Store IDPsk-pub (and IDPaik if provided, device trusted via LKH)
 		i->>u: Bound cookies
 	else Standard / Unmanaged Registration (TOFU)
 		note over u, i: Sign in ceremony
