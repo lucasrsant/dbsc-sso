@@ -231,9 +231,11 @@ Initializing the session with an Identity Provider has some extra steps in compa
 
 Depending on the device management state and trust model, session initialization follows one of two paths:
 
-1. **Pre-existing Device Registration (Clean-Room / Enterprise):** When the IdP can authenticate the device through an existing device trust relationship (such as a DeviceKey-signed Primary Refresh Token, client certificate over mTLS, or platform broker registration), the IdP establishes a standard DBSC session via `Secure-Session-Registration` but **omits the `aik_required` parameter**. Since the device is already trusted and registered with its own trust anchor validated by the Local Key Helper (LKH), there is no need for the browser to generate and register a new attestation identity key (AIK) with the IdP. The existing device trust anchor is leveraged by the LKH to attest subsequent Relying Party keys. IdPs without device trust **MUST** use TOFU.
-2. **Standard / Unmanaged Registration (TOFU):** When no pre-existing device registration exists, the IdP triggers session registration and includes the boolean parameter `aik_required: ?1` in the `Secure-Session-Registration` header, indicating that the client should generate and provide an Attestation Key in addition to the regular signing key.
-
+1. **Enterprise Registration (Clean-Room / LKH):** On managed devices with a Local Key Helper (LKH) mapped to the IdP origin through an enterprise policy, the device is either:
+	* Already registered in a clean-room fashion through an existing device trust relationship (such as an IdP-specific device binding artifact, mTLS client certificate, or platform broker registration), in which case the IdP establishes a DBSC session via `Secure-Session-Registration` and **omits the `aik_required` parameter** (leveraging the existing LKH-validated trust anchor to attest subsequent Relying Party keys); or
+	* Registered using the LKH mapped through enterprise policy, in which case the IdP includes `aik_required: ?1` in `Secure-Session-Registration` and the LKH provides the attestation key and `dbsc+aik` registration statement.
+	IdPs without device trust **MUST** use TOFU.
+2. **Standard / Unmanaged Registration (TOFU):** When no pre-existing device registration or mapped LKH exists, the IdP triggers session registration and includes the boolean parameter `aik_required: ?1` in the `Secure-Session-Registration` header, indicating that the browser should generate and provide an Attestation Key in addition to the regular signing key.
 The following diagram shows how a bound session is established between the User Agent and the IdP:
 
 ```mermaid
@@ -245,23 +247,20 @@ sequenceDiagram
 	participant u as User agent
 	participant i as Identity Provider
 	
-	alt Pre-existing Device Registration (Enterprise / LKH)
+	alt Enterprise Registration (Clean-Room / LKH)
 		note over u, i: Sign in ceremony
 		u->>i: Authenticate device<br>(IdP-specific device binding artifact, mTLS client certificate, platform broker registration)
-		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (omits aik_required), Secure-Session-Challenge=...
-
+		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (aik_required optional), Secure-Session-Challenge=...
 		note over i, l: Background DBSC registration
-		u->>l: Compute IdP signing key and challenge signature
-		l->>u: Return (IDPsk-pub, signature)
-		u->>i: Post (IDPsk-pub, signature)
-		note over i: Validate signature<br>Store IDPsk-pub (device trusted via LKH)
+		u->>l: Compute IdP signing key, challenge signature<br>(and AIK attestation if aik_required: ?1)
+		l->>u: Return (IDPsk-pub, signature [, IDPaik, attStatement, attSignature])
+		u->>i: Post (IDPsk-pub, signature [, IDPaik, attStatement, attSignature])
+		note over i: Validate signature (and attestation if present)<br>Store IDPsk-pub (and IDPaik if provided; device trusted via LKH)
 		i->>u: Bound cookies
-
 	else Standard / Unmanaged Registration (TOFU)
 		note over u, i: Sign in ceremony
 		u->>i: Authenticate
 		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration=aik_required: ?1, Secure-Session-Challenge=...
-
 		note over i, t: Background DBSC registration w/ AIK
 		u->>t: Compute IdP signing and attestation keys,<br>attestation statement/sig, and challenge signature
 		t->>u: Return (IDPsk-pub, IDPaik, attStatement, attSignature, signature)
@@ -275,17 +274,15 @@ Identity Provider session binding flow.
 Each step in the diagram is detailed below:
 
 **Sign in ceremony:**
-* **Pre-existing Device Registration (Enterprise):** The User Agent authenticates the device using existing selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, the IdP responds with `Secure-Session-Registration` omitting `aik_required`, initiating standard DBSC session registration.
+* **Enterprise Registration (Clean-Room / LKH):** The User Agent authenticates the device using existing selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, the IdP responds with `Secure-Session-Registration`, either omitting `aik_required` (when registered in a clean-room fashion) or setting `aik_required: ?1` (when registered using the LKH mapped through enterprise policy).
 * **Standard / Unmanaged Registration (TOFU):** The sign-in ceremony proceeds normally. Upon successful authentication, the IdP includes the `aik_required: ?1` parameter in the `Secure-Session-Registration` header, signaling that the client **must** provide cryptographic proof of the relationship between the session signing key and a newly generated attestation key.
-
 **Key generation and attestation:** This step is performed asynchronously in the background:
-* In the **Enterprise / LKH** path, the trigger for using the Local Key Helper is the presence of an authorized LKH mapping configured for the IdP origin. When this mapping is detected, the browser delegates **all** cryptographic operations for the session to the LKH so that browser-managed and LKH-managed keys are never mixed on the same session: the **LKH** creates the session signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$, retains $IdP_\text{sk-priv}$ (returning an opaque key handle to the browser), and signs the challenge sent by the server. Because the device is already trusted and its trust anchor is managed by the LKH, no browser-managed attestation identity key (AIK) is generated or registered (even if `aik_required` were present).
+* In the **Enterprise / LKH** path, the trigger for using the Local Key Helper is the presence of an authorized LKH mapping configured for the IdP origin via enterprise policy. When this mapping is detected, the browser delegates **all** cryptographic operations for the session to the LKH so that browser-managed and LKH-managed keys are never mixed on the same session: the **LKH** creates the session signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$, retains $IdP_\text{sk-priv}$ (returning an opaque key handle to the browser), and signs the challenge sent by the server. If `aik_required` is omitted (clean-room registration), no attestation key or attestation statement is generated for the IdP session key. If `aik_required: ?1` is present, the **LKH** (never the browser) also provides the attestation key and attests $IdP_\text{sk-pub}$.
 * In the **Consumer / TOFU** path (when no LKH is mapped to the IdP origin and `aik_required: ?1` is present), the browser creates both signing and attestation keys in the TEE:
 	1. A new signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$ is created. $IdP_\text{sk-pub}$ is used to register the IdP DBSC session.
 	1. The challenge sent by the server is signed with $IdP_\text{sk-priv}$.
 	1. A new attestation key pair $(IdP_\text{ak-pub}, IdP_\text{ak-priv})$ is created and used to create an attestation claim for $IdP_\text{sk}$.
-
-**Registration statement:** On the enterprise path, the client sends a standard [DBSC proof](https://w3c.github.io/webappsec-dbsc/#format-jwt) containing only the session signing key. On the TOFU path, a new variant of the DBSC proof takes place to accommodate both subject and attestation keys. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
+**Registration statement:** When `aik_required` is omitted on the enterprise path, the client sends a standard [DBSC proof](https://w3c.github.io/webappsec-dbsc/#format-jwt) containing only the session signing key. When `aik_required: ?1` is set (either on the browser-managed TOFU path or via the enterprise-policy-mapped LKH), a new variant of the DBSC proof takes place to accommodate both subject and attestation keys. It uses [nested JWT](https://www.rfc-editor.org/rfc/rfc7519#appendix-A.2) so the subject key is the payload of the encompassing attestation key, expressed in the [JWS](https://www.rfc-editor.org/rfc/rfc7515) format:
 
 ```json5
 // Header
@@ -725,7 +722,7 @@ There are a few capabilities that the browser must provide in order to support D
 
 #### Identity Provider registration statement
 
-When signing in to an IdP, if an authorized Local Key Helper is mapped to the IdP origin, the User Agent delegates session key generation and challenge signing to the LKH and sends a standard DBSC proof (ignoring `aik_required` if present, so browser-managed and LKH-managed keys are never mixed). Otherwise, when no LKH is mapped to the IdP origin and the `aik_required` parameter is set in the `Secure-Session-Registration` header, the User Agent must provide not only the session key and the challenge signature, but also a browser-managed attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature.
+When signing in to an IdP, if an authorized Local Key Helper is mapped to the IdP origin via enterprise policy, the User Agent delegates all registration cryptographic operations to the LKH so that browser-managed and LKH-managed keys are never mixed: if `aik_required` is omitted (clean-room registration), the LKH generates the session key and signs the challenge to produce a standard DBSC proof; if `aik_required: ?1` is set (registration using the LKH), the LKH additionally attests the session key and returns a `dbsc+aik` registration statement. Otherwise, when no LKH is mapped to the IdP origin and the `aik_required` parameter is set in the `Secure-Session-Registration` header, the User Agent must provide not only the session key and the challenge signature, but also a browser-managed attestation key that will be later used to verify per-RP keys, along with its attestation statement and signature.
 
 On the browser-managed TOFU path, the registration statement is built as follows:
 
