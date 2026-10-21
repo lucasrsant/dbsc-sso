@@ -18,7 +18,7 @@
 
 [Issue tracker](https://github.com/w3c/webappsec-dbsc/issues)
 
-## Table of Content
+## Table of Contents
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -80,13 +80,12 @@ This document is inspired by the [DBSC(E) Explainer](https://github.com/w3c/weba
 
 ## Terminology
 
-*  **IdP:** The **Identity Provider** that the user authenticates with. It manages user’s credentials and issues SAML assertions to relying parties.
+*  **IdP:** The **Identity Provider** that the user authenticates with. It manages user’s credentials and issues SAML assertions or OIDC tokens to relying parties.
 *  **RP:** Acronym for **Relying Party**; a web application that relies on IdP's assertion to allow users to access restricted content (referred to as "SP" or "Service Provider" in SAML docs).
 *  **Session Provider:** In the context of the underlying [DBSC specification](https://w3c.github.io/webappsec-dbsc/#session-provider), a website or service that issues and maintains a user session. In this explainer, the Session Provider in the SSO flow is referred to as the **Identity Provider (IdP)**.
 *  **TEE:** Acronym for **Trusted Execution Environment**; a secure, isolated area within a computer's main processor (CPU) that protects sensitive data and code from other parts of the system.
 *  **AIK:** Acronym for **Attestation Identity Key.**
-*  **Key material:** Asymmetric key pair hardware-backed (either by TPMs on PCs or Secure Enclaves on Mac devices).
-
+*  **Key material:** Asymmetric key pair stored in secure hardware or storage (such as TPMs on Windows and Linux, Secure Enclave on macOS, or secure storage chosen by an enterprise LKH).
 * **LKH**: Acronym for **Local Key Helper**; an installed binary on enterprise managed devices that handles cryptographic operations and trust anchors.
 
 ## Relationship to DBSC(E) and Convergence
@@ -164,7 +163,7 @@ sequenceDiagram
 	r->>u: SAML/OIDC Authn request
 	u->>i: Authn request (DBSC support hinting)
     
-    note  over  u, i: Browser authentication<br>(cookies, proof-of-posession, etc)
+    note  over  u, i: Browser authentication<br>(cookies, proof-of-possession, etc)
 	
     i->>u: 401 Secure-Session-GenerateKey=...
 	u->>t: Signing key generation
@@ -224,7 +223,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	To circumvent this, the IdP should also hint the RP back in its **signed** response (in the SAML Assertion or OIDC Token), so that if the RP supports DBSC and does not get a trusted key digest (or certificate fingerprint) in the assertion, it's a strong signal that the authentication request has been tampered with.
 
-	In Enterprise scenarios, Identity Providers can hold additional configurations in which Admins can state that a particular Relying Party supports DBSC-SSO, or even further; that the IdP should only issue an assertion if the device succesfully generates a binding statement.
+	In Enterprise scenarios, Identity Providers can hold additional configurations in which Admins can state that a particular Relying Party supports DBSC-SSO, or even further; that the IdP should only issue an assertion if the device successfully generates a binding statement.
 
 
 ### Identity Provider's session initialization
@@ -276,7 +275,7 @@ Identity Provider session binding flow.
 Each step in the diagram is detailed below:
 
 **Sign in ceremony:**
-* **Enterprise Registration (Clean-Room / LKH):** The User Agent authenticates the device using existing selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, the IdP responds with `Secure-Session-Registration`, either omitting `aik_required` (when registered in a clean-room fashion) or setting `aik_required: ?1` (when registered using the LKH mapped through enterprise policy).
+* **Enterprise Registration (Clean-Room / LKH):** The User Agent authenticates the device using the selected mechanism (mTLS client certificate, platform broker registration, IdP-specific device binding artifact). Upon successful authentication, the IdP responds with `Secure-Session-Registration`, either omitting `aik_required` (when registered in a clean-room fashion) or setting `aik_required: ?1` (when registered using the LKH mapped through enterprise policy).
 * **Standard / Unmanaged Registration (TOFU):** The sign-in ceremony proceeds normally. Upon successful authentication, the IdP includes the `aik_required: ?1` parameter in the `Secure-Session-Registration` header, signaling that the client **must** provide cryptographic proof of the relationship between the session signing key and a newly generated attestation key.
 **Key generation and attestation:** This step is performed asynchronously in the background:
 * In the **Enterprise / LKH** path, the trigger for using the Local Key Helper is the presence of an authorized LKH mapping configured for the IdP origin via enterprise policy. When this mapping is detected, the browser delegates **all** cryptographic operations for the session to the LKH so that browser-managed and LKH-managed keys are never mixed on the same session: the **LKH** creates the session signing key pair $(IdP_\text{sk-pub}, IdP_\text{sk-priv})$, retains $IdP_\text{sk-priv}$ (returning an opaque key handle to the browser), and signs the challenge sent by the server. If `aik_required` is omitted (clean-room registration), no attestation key or attestation statement is generated for the IdP session key. If `aik_required: ?1` is present, the **LKH** also provides the attestation key and attests $IdP_\text{sk-pub}$.
@@ -482,7 +481,7 @@ Before establishing the session, the RP should evaluate the following scenarios:
 
 The Relying Party indicates what key should be used in the parameter `provider_key` set in the `Secure-Session-Registration` header.
 
-The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criterias match:
+The value for this parameter is the key digest sent by the IdP. The browser will send the public key material only if all the following criteria match:
 
 * RP's origin matches the origin indicated by the Identity Provider in the `target_origin` parameter of the `Secure-Session-GenerateKey` header.
 * The `provider_key` parameter matches the underlying key digest, treated as an opaque string.
