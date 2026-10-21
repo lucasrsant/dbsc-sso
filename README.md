@@ -23,6 +23,7 @@
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
+
 - [Introduction](#introduction)
 - [Terminology](#terminology)
 - [Relationship to DBSC(E) and Convergence](#relationship-to-dbsce-and-convergence)
@@ -48,7 +49,7 @@
   - [User agent](#user-agent)
     - [Identity Provider registration statement](#identity-provider-registration-statement)
   - [Delegated key generation](#delegated-key-generation)
-    - [Native Local Key Helper (LKH) Integration](#native-local-key-helper-lkh-integration)
+    - [Native Local Key Helper Integration](#native-local-key-helper-integration)
   - [Identity Provider binding statement](#identity-provider-binding-statement)
   - [Relying Party's session initialization](#relying-partys-session-initialization-1)
 - [Alternatives Considered](#alternatives-considered)
@@ -203,7 +204,7 @@ It is also expected that the IdP adopts a [TOFU](https://en.wikipedia.org/wiki/T
 
 	The key access control model is discussed in detail [further](#key-access-control-and-lifecycle) in this document.
 
-* **Signing key generation:** This step relies on securely-stored keys generation, which can be either on TPMs (Windows and Linux), Secure Enclave (macOS), or secure storage chosen by an enterprise LKHs. Browser-managed keys are the same as in standard DSBC. The user agent treats a LKH-based key as an opaque key handle.
+* **Signing key generation:** This step relies on securely-stored keys generation, which can be either on TPMs (Windows and Linux), Secure Enclave (macOS), or secure storage chosen by an enterprise LKH. Browser-managed keys are the same as in standard DBSC. The user agent treats an LKH-based key as an opaque key handle.
 
 * **Browser sends the key digest to the IdP:** When the browser finishes computing the binding statement, it retries the request that triggered the key generation, appending the new header `Secure-Session-KeyBinding` carrying the statement.
 
