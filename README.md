@@ -48,10 +48,10 @@
     - [SAML Assertions and OIDC tokens](#saml-assertions-and-oidc-tokens)
   - [User agent](#user-agent)
     - [Identity Provider registration statement](#identity-provider-registration-statement)
-  - [Delegated key generation](#delegated-key-generation)
-    - [Native Local Key Helper Integration](#native-local-key-helper-integration)
-  - [Identity Provider binding statement](#identity-provider-binding-statement)
-  - [Relying Party's session initialization](#relying-partys-session-initialization-1)
+    - [Delegated key generation](#delegated-key-generation)
+      - [Native Local Key Helper Integration](#native-local-key-helper-integration)
+    - [Identity Provider binding statement](#identity-provider-binding-statement)
+    - [Relying Party's session initialization](#relying-partys-session-initialization-1)
 - [Alternatives Considered](#alternatives-considered)
   - [Relayed refreshes](#relayed-refreshes)
   - [IdP's key sharing](#idps-key-sharing)
@@ -744,7 +744,7 @@ On the browser-managed TOFU path, the registration statement is built as follows
 
 The response is then encoded in the format of a DBSC proof and sent to the server.
 
-### Delegated key generation
+#### Delegated key generation
 
 The User Agent creates a new key pair when instructed by the Identity Provider via the `Secure-Session-GenerateKey` header.
 
@@ -761,7 +761,7 @@ As the key needs to be generated while the user is signing in to the Relying Par
 
 To overcome this issue, browsers on the browser-managed TOFU path are expected to pre-generate keys as soon as the IdP's session is established: the User Agent triggers background key creation whenever it receives the `aik_required` parameter in the `Secure-Session-Registration` header and no LKH is mapped to the IdP origin. On the enterprise path, LKHs can manage pre-generated key pools or leverage hardware-accelerated platform storage to minimize sign-in latency.
 
-#### Native Local Key Helper Integration
+##### Native Local Key Helper Integration
 
 In enterprise scenarios where devices are managed and enrolled in corporate device management (MDM), browsers can delegate key generation, attestation, and signature operations to an installed binary provided by the IdP or a third party acting as the Local Key Helper. The LKH can interact with platform brokers such as:
 * **Windows:** Web Account Manager (WAM) and CloudAP plugins.
@@ -781,7 +781,7 @@ Because LKH discovery and invocation happen natively within the platform, helper
 
 An LKH is considered **authorized** for an IdP origin only when the device administrator (via enterprise policy or MDM configuration) explicitly maps that IdP origin to the helper. The browser **MUST** use only the helper mapped to the requesting IdP origin and ignore any other helper registered on the OS, preventing malware from installing a rogue helper to create per-RP keys and binding statements; conversely, a helper only serves the IdP origins mapped to it. Because this mapping is provisioned out-of-band rather than negotiated via HTTP headers, sites cannot probe which helpers are installed on the device.
 
-### Identity Provider binding statement
+#### Identity Provider binding statement
 
 When signing in to Relying Parties, the Identity Provider needs to assert that the RP key comes from the same device as originally signed in to the IdP.
 This is done as follows:
@@ -804,7 +804,7 @@ The resulting binding statement JSON object is Base64URL-encoded and sent to the
 
 Once this binding statement is verified, the IdP can then issue an authentication token to be redirected to the RP.
 
-### Relying Party's session initialization
+#### Relying Party's session initialization
 
 The Relying Party sends the `Secure-Session-Registration` header as it would in a standard DBSC session. However, in SSO cases, this header holds the parameter `provider_key`, which tells the User Agent which key the RP expects. If the key with the specified digest matches the RP's origin assigned to that key, the User Agent uses it to establish the new session. From this point, the DBSC session initialization happens as usual.
 
