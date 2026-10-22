@@ -144,7 +144,7 @@ This is because the device will need to, at RP-session refresh time, prove posse
 
 The device creates a new signing key for every RP the user is signing in to, and the underlying IdP is responsible for making sure the key was generated in the same device that originally signed in to the IdP.
 
-Key attestation gives remote parties the ability to attest that a particular object is loaded in the same TEE, hence proving that both `IdPKey` and `RPKey` come from the same device.
+Key attestation gives remote parties the ability to attest that a particular object is loaded in the same TEE (or LKH-managed secure storage), hence proving that both $IdP_\text{sk}$ and $RP_\text{sk}$ come from the same device.
 
 The following diagram shows the overall SSO authentication flow and how the key presented by the User Agent is attested to be owned by the expected device:
 
@@ -152,7 +152,7 @@ The following diagram shows the overall SSO authentication flow and how the key 
 sequenceDiagram
 	autonumber
 
-	participant t as TEE
+	participant t as TEE / LKH
 	participant u as User agent
 	participant r as Relying Party
 	participant i as Identity Provider
@@ -362,7 +362,7 @@ stmt := base64url_enc(raw_stmt)
 	The field is required for both formats. `stmt` only ever carries a *digest* of the subject key, so without `sub_key` the IdP cannot recover the key material itself, and it cannot re-derive that digest under any other encoding.
 *  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g., helper identifiers or binding semantics). This property is not covered by `sig`, thus if IdP needs to trust the values in it, their own LKH implementation should handle the signature.
 
-**Server-side validation:** The server validates the registration statement and securely stores both the signing and attestation keys $(IdP_\text{pk}, IdP_\text{pak})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
+**Server-side validation:** The server validates the registration statement and securely stores (or, on the clean-room path, verifies against its enterprise device registry) the signing and attestation keys' $(IdP_\text{sk-pub}, IdP_\text{ak-pub})$ public material. If valid, the server issues fresh (and bound) authentication cookies.
 
 **Attestation key bypass:** Key attestation is used to generate per-RP keys and avoid re-using the same signing key as the IdP. This is mostly designed to prevent user tracking. However, under enterprise contexts, sharing the IdP key with multiple RPs might not pose a privacy concern, and should be allowed under certain circumstances (e.g. Enterprise browser policies) to increase adoption.
 
@@ -442,7 +442,7 @@ The following diagram shows how a new DBSC session is established between the de
 	sequenceDiagram
 		autonumber
 
-		participant t as  TEE
+		participant t as  TEE / LKH
 		participant  u  as  User  agent
 		participant  r  as  Relying  Party
 		participant  i  as  Identity  Provider
@@ -460,10 +460,10 @@ The following diagram shows how a new DBSC session is established between the de
 		r->>r: Stores key digest
 		r->>u: 200 w/ authn cookie, response includes header to start session using a particular key<br>Secure-Session-Registration=..., Secure-Session-Challenge=...
 		alt  Background
-			u->>u: Loads RPpub with<br>the following digest
-			u->>t: Sign challenge with RPpriv
+			u->>u: Loads RPsk-pub with<br>the following digest
+			u->>t: Sign challenge with RPsk-priv
 			t->>u: Signature
-			u->>r: Post (RPpub, signature)
+			u->>r: Post (RPsk-pub, signature)
 			r->>r: Validates signature<br>and digest
 			r->>u: Bound cookies
 		end
