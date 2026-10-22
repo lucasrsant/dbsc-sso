@@ -254,9 +254,9 @@ sequenceDiagram
 		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (aik_required optional), Secure-Session-Challenge=...
 		note over i, l: Background DBSC registration w/ LKH
 		u->>l: Compute IdP signing key, attestation statement/sig<br>(using pre-provisioned AIK or new AIK if aik_required is set), and challenge signature
-		l->>u: Return (IDPsk-pub, IDPaik, attStatement, attSignature, signature)
-		u->>i: Post (IDPsk-pub, IDPaik, attStatement, attSignature, signature)
-		note over i: Validate signature and attestation<br>Verify or store IDPaik (device trusted via LKH) and store IDPsk-pub
+		l->>u: Return (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
+		u->>i: Post (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
+		note over i: Validate signature and attestation<br>Verify or store IDPak-pub (device trusted via LKH) and store IDPsk-pub
 		i->>u: Bound cookies
 	else Standard / Unmanaged Registration (TOFU)
 		note over u, i: Sign in ceremony
@@ -264,9 +264,9 @@ sequenceDiagram
 		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration=aik_required: ?1, Secure-Session-Challenge=...
 		note over i, t: Background DBSC registration w/ AIK
 		u->>t: Compute IdP signing and attestation keys,<br>attestation statement/sig, and challenge signature
-		t->>u: Return (IDPsk-pub, IDPaik, attStatement, attSignature, signature)
-		u->>i: Post (IDPsk-pub, IDPaik, attStatement, attSignature, signature)
-		note over i: Validate signature and attestation<br>Store IDPsk-pub and IDPaik
+		t->>u: Return (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
+		u->>i: Post (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
+		note over i: Validate signature and attestation<br>Store IDPsk-pub and IDPak-pub
 		i->>u: Bound cookies
 	end
 ```
@@ -386,7 +386,7 @@ Repeating them on the binding statement would make them attacker-controlled inpu
 
 > **Invariant:** The verification key ($IdP_\text{ak-pub}$ or enterprise device/attestation key), the algorithm `alg`, and the attestation format `fmt` MUST all come from stored state — either from the session state stored at AIK registration or from the IdP's enterprise device registration records. The binding statement never carries `alg` or `fmt`. Everywhere `hash_alg(alg)` appears in the binding path below, `alg` is the stored/pinned algorithm, never a value read from the statement.
 
-This asymmetry with the registration statement is deliberate. At registration the two values are covered by the signature and the IdP has no prior state to compare them against; at binding time they would be unauthenticated and fully redundant. If key transport (`x5c` or `jwk`) is ever added to the binding statement, the reasoning no longer holds and both fields must move back in, inside the signed bytes.
+This asymmetry with the registration statement is deliberate. At registration the two values are covered by the signature and, when registering a new attestation key (`aik_required: ?1`), the IdP has no prior state to compare them against (whereas on the clean-room path they are verified against the pre-provisioned enterprise device record); at binding time they would be unauthenticated and fully redundant. If key transport (`x5c` or `jwk`) is ever added to the binding statement, the reasoning no longer holds and both fields must move back in, inside the signed bytes.
 
 For `TPM`:
 
