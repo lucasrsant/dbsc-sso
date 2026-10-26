@@ -628,7 +628,7 @@ If both the JWK thumbprint verification and the signature verification succeed (
 As shown in the first diagram of this document, it is expected that the IdP supports DBSC. So starting from this premise, the Identity Provider should implement the following:
 
 #### DBSC registration header
-In the **new AIK in an LKH** and **new browser-managed AIK** paths, besides the standard DBSC headers, the `Secure-Session-Registration` header includes the `aik_required` parameter. In the **pre-provisioned AIK in an LKH** path, the IdP omits `aik_required`.
+In the **new AIK in an LKH** and **new browser-managed AIK** paths, besides the standard DBSC headers, the `Secure-Session-Registration` header includes the `aik_required` parameter. In the **pre-provisioned AIK in an LKH** path, the IdP omits `aik_required`. In every case, the IdP MUST include the challenge parameter, because the client needs it to build the `dbsc+aik` registration statement.
 
 `aik_required` is a [boolean](https://datatracker.ietf.org/doc/html/rfc9651#name-booleans) parameter (`aik_required=?1`) indicating whether the client (LKH or browser) must create a new AIK during session registration.
 
