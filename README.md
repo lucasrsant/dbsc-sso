@@ -237,7 +237,7 @@ Initializing the session with an Identity Provider has some extra steps in compa
 Session initialization follows one of the three paths defined in [Terminology](#terminology):
 
 1. **Pre-provisioned AIK in an LKH:** The device authenticates through an existing device trust relationship (such as an IdP-specific device binding artifact, mTLS client certificate, or platform broker registration). The IdP establishes a DBSC session via `Secure-Session-Registration` and **omits the `aik_required` parameter**, and the LKH uses its pre-provisioned AIK to attest the new IdP signing key in a `dbsc+aik` registration statement.
-2. **New AIK in an LKH:** The IdP includes `aik_required=?1` in `Secure-Session-Registration`, and the LKH generates a new AIK and produces the `dbsc+aik` registration statement.
+2. **New AIK in an LKH:** The IdP includes `aik_required=?1` in `Secure-Session-Registration`, and the LKH generates a new AIK and produces the `dbsc+aik` registration statement. Because the IdP has no prior record of this AIK, it trusts the key on first use (TOFU), as in the **new browser-managed AIK** path.
 3. **New browser-managed AIK:** The IdP includes `aik_required=?1` in `Secure-Session-Registration`, and the browser generates a new browser-managed AIK and produces the `dbsc+aik` registration statement. IdPs without device trust **MUST** use the **new browser-managed AIK** path.
 
 The following diagram shows how a bound session is established between the User Agent and the IdP:
@@ -259,7 +259,7 @@ sequenceDiagram
 		u->>l: Compute IdP signing key, attestation statement/sig<br>(using pre-provisioned AIK or new AIK if aik_required is set), and challenge signature
 		l->>u: Return (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
 		u->>i: Post (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
-		note over i: Validate signature and attestation<br>Verify or store IDPak-pub (device trusted via LKH) and store IDPsk-pub
+		note over i: Validate signature and attestation<br>Verify or store IDPak-pub and store IDPsk-pub
 		i->>u: Bound cookies
 	else New browser-managed AIK
 		note over u, i: Sign in ceremony
