@@ -684,7 +684,7 @@ The `Secure-Session-GenerateKey` is a new HTTP header that instructs the User Ag
 
 * A [string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings) parameter `challenge`, which is a replay-resistant challenge used to prove the private key possession.
 
-* An [sf-parameter](https://datatracker.ietf.org/doc/html/rfc9651#name-parameters) whose key is `provider_session_id`, and whose value is an [sf-string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings), identifying the Identity Provider's bound session. Because an IdP domain may maintain multiple concurrent active sessions, this identifier disambiguates which session the request belongs to. The User Agent looks up the active session keyed by the registrable domain of the issuing request's URL and `provider_session_id`, verifies that the issuing request's URL is in scope of that session, and uses it to locate either the session's browser-managed AIK or an authorized platform Local Key Helper route configured for that IdP origin. If no active session matches, the issuing request is not in scope of that session, or neither a browser AIK nor an authorized Local Key Helper is available, the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
+* An [sf-parameter](https://datatracker.ietf.org/doc/html/rfc9651#name-parameters) whose key is `provider_session_id`, and whose value is an [sf-string](https://datatracker.ietf.org/doc/html/rfc9651#name-strings), identifying the Identity Provider's bound session. Because an IdP domain may maintain multiple concurrent active sessions, this identifier disambiguates which session the request belongs to. The User Agent looks up the active session keyed by the registrable domain of the issuing request's URL and `provider_session_id`, verifies that the issuing request's URL is in scope of that session, and uses it to locate the key provider recorded for that session at registration (either the session's browser-managed AIK or the authorized Local Key Helper still mapped to that IdP origin). If no active session matches, the issuing request is not in scope of that session, or the session's recorded key provider is no longer available, the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
 Example:
 
@@ -733,7 +733,7 @@ There are a few capabilities that the browser must provide in order to support D
 
 #### Identity Provider registration statement
 
-When signing in to an IdP, in the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, the User Agent delegates all registration cryptographic operations to the LKH so that browser-managed and LKH-managed keys are never mixed: the LKH generates the session key, signs the challenge, and attests the session key to produce a `dbsc+aik` registration statement using its pre-provisioned AIK or new AIK. In the **new browser-managed AIK** path, the User Agent provides the session key, the challenge signature, and a new browser-managed AIK along with its attestation statement and signature.
+When signing in to an IdP, in the **pre-provisioned AIK in an LKH** and **new AIK in an LKH** paths, the User Agent delegates all registration cryptographic operations to the LKH so that browser-managed and LKH-managed keys are never mixed: the LKH generates the session key, signs the challenge, and attests the session key to produce a `dbsc+aik` registration statement using its pre-provisioned AIK or new AIK. In the **new browser-managed AIK** path, the User Agent provides the session key, the challenge signature, and a new browser-managed AIK along with its attestation statement and signature. In all paths, the User Agent records the key provider (whether the session is browser-managed or managed by a specific LKH) with the IdP session and continues using that provider for the lifetime of the session.
 
 In the **new browser-managed AIK** path, the registration statement is built as follows:
 
@@ -757,8 +757,8 @@ The User Agent only creates such a key if and only if:
 1. The user has granted 3PC (via Storage Access API) for the target origin sent in the `Secure-Session-GenerateKey` header;
 2. A valid Identity Provider session keyed by the registrable domain of the issuing request's URL and `provider_session_id` is found, and the issuing request's URL is in scope of that session; and
 3. Depending on the session's path:
-	* **Pre-provisioned AIK in an LKH** or **new AIK in an LKH:** An authorized platform Local Key Helper is mapped to the IdP origin; or
-	* **New browser-managed AIK:** No Local Key Helper is mapped to the IdP origin, and the browser holds an active session-associated browser-managed AIK for that session.
+	* **Pre-provisioned AIK in an LKH** or **new AIK in an LKH:** The IdP session was registered through an authorized Local Key Helper, and that helper is still mapped to the IdP origin; or
+	* **New browser-managed AIK:** The IdP session was registered with a browser-managed AIK, and the browser still holds that AIK.
 
 Otherwise, the User Agent ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
@@ -793,17 +793,17 @@ This is done as follows:
 1. Browser verifies that the user has granted 3PC access (via Storage Access API) for the `target_origin` specified in the `Secure-Session-GenerateKey` header; otherwise, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 1. Browser looks up the IdP session keyed by the registrable domain of the issuing request's URL and the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session matches `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 1. Depending on the mutually exclusive path established for that session:
-	* **Pre-provisioned AIK in an LKH** or **new AIK in an LKH:**
+	* **Pre-provisioned AIK in an LKH** or **new AIK in an LKH:** If the IdP session was registered through an authorized Local Key Helper and that helper is still mapped to the IdP origin:
 		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge, the algorithm list from `Secure-Session-GenerateKey`, the RP target origin, and the key handle of the IdP session that `provider_session_id` identifies.
 		2. The platform LKH generates $RP_\text{sk}$, attests it using $IdP_\text{ak-priv}$, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$. If the LKH fails or times out, the browser aborts the operation and does not reply to the Identity Provider.
-	* **New browser-managed AIK:**
+	* **New browser-managed AIK:** If the IdP session was registered with a browser-managed AIK and the browser still holds that AIK:
 		1. Browser generates the per-RP key pair ($RP_\text{sk-pub}, RP_\text{sk-priv}$).
 		1. Browser computes the attestation statement (`stmt`):
 			* For `TPM`: Browser encodes $RP_\text{sk-pub}$ as `TPMT_PUBLIC`, computes `qualifyingData = hash(challenge, hash_alg(alg))`, and invokes `TPM2_Certify` to produce `TPMS_ATTEST`.
 			* For `SECURE_ENCLAVE`: Browser encodes $RP_\text{sk-pub}$ as a DER `SubjectPublicKeyInfo`, computes `raw_stmt = concat(hash(challenge, hash_alg(alg)), hash(sub_key_bytes, hash_alg(alg)))` and Base64URL-encodes it into `stmt`.
 		1. Browser computes the attestation signature (`sig`) using $IdP_\text{ak-priv}$. If `fmt` is `SECURE_ENCLAVE`, the signature MUST be formatted as a raw IEEE P1363 ECDSA signature ($r \parallel s$, fixed 64 bytes for P-256 / ES256 per RFC 7518 Section 3.4), converting from ASN.1 DER if generated via Apple's `SecKeyCreateSignature`.
 		1. Browser includes the certified public key as `sub_key`, Base64URL-encoded: `TPMT_PUBLIC` for `TPM`, DER `SubjectPublicKeyInfo` for `SECURE_ENCLAVE`.
-	* If neither an authorized platform Local Key Helper mapping nor an associated browser AIK is available, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
+	* Otherwise, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 
 The resulting binding statement JSON object is Base64URL-encoded and sent to the Identity Provider in the `Secure-Session-KeyBinding` header when retrying the authentication request.
 
