@@ -794,7 +794,7 @@ This is done as follows:
 1. Browser identifies the IdP session matching the `provider_session_id` parameter from the `Secure-Session-GenerateKey` header. The browser then verifies that the issuing request's URL is [in scope](https://w3c.github.io/webappsec-dbsc/#algo-url-in-scope) of that session, so an origin-scoped IdP session (`include_site: false`) can only be used by the origin it was registered for. If no session matches `provider_session_id`, or the issuing request is not in scope of that session, the browser ignores the `Secure-Session-GenerateKey` header and does not reply to the Identity Provider.
 1. Depending on the mutually exclusive path established for that session:
 	* **Pre-provisioned AIK in an LKH** or **new AIK in an LKH:**
-		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge and RP target origin.
+		1. Browser delegates key creation and attestation to the platform LKH, passing the challenge, the algorithm list from `Secure-Session-GenerateKey`, the RP target origin, and the key handle of the IdP session that `provider_session_id` identifies.
 		2. The platform LKH generates $RP_\text{sk}$, attests it using $IdP_\text{ak-priv}$, and returns `sub_key`, `stmt`, `sig`, any `extra_claims`, and an opaque key handle for $RP_\text{sk}$. If the LKH fails or times out, the browser aborts the operation and does not reply to the Identity Provider.
 	* **New browser-managed AIK:**
 		1. Browser generates the per-RP key pair ($RP_\text{sk-pub}, RP_\text{sk-priv}$).
