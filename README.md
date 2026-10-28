@@ -256,7 +256,7 @@ sequenceDiagram
 	alt Pre-provisioned AIK in an LKH / new AIK in an LKH
 		note over u, i: Sign in ceremony
 		u->>i: Authenticate device<br>(IdP-specific device binding artifact, mTLS client certificate, platform broker registration)
-		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (aik_required optional), Secure-Session-Challenge=...
+		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (aik_required optional, challenge=...)
 		note over i, l: Background DBSC registration w/ LKH
 		u->>l: Compute IdP signing key, attestation statement/sig<br>(using pre-provisioned AIK or new AIK if aik_required is set), and challenge signature
 		l->>u: Return (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
@@ -266,7 +266,7 @@ sequenceDiagram
 	else New browser-managed AIK
 		note over u, i: Sign in ceremony
 		u->>i: Authenticate
-		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration=aik_required=?1, Secure-Session-Challenge=...
+		i->>u: 200 w/ authn cookie<br>Secure-Session-Registration (aik_required=?1, challenge=...)
 		note over i, t: Background DBSC registration w/ AIK
 		u->>t: Compute IdP signing and attestation keys,<br>attestation statement/sig, and challenge signature
 		t->>u: Return (IDPsk-pub, IDPak-pub, attStatement, attSignature, signature)
@@ -466,7 +466,7 @@ The following diagram shows how a new DBSC session is established between the de
 		i->>u: HTTP 302 w/ authn token (w/ key digest + DBSC support hint)
 		u->>r: GET/POST authn token (w/ key digest + DBSC support hint)
 		r->>r: Stores key digest
-		r->>u: 200 w/ authn cookie, response includes header to start session using a particular key<br>Secure-Session-Registration=..., Secure-Session-Challenge=...
+		r->>u: 200 w/ authn cookie, response includes header to start session using a particular key<br>Secure-Session-Registration (challenge=...)
 		alt  Background
 			u->>u: Loads RPsk-pub with<br>the following digest
 			u->>t: Sign challenge with RPsk-priv
