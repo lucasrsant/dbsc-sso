@@ -91,7 +91,7 @@ This document is inspired by the [DBSC(E) Explainer](https://github.com/w3c/weba
 Depending on how the AIK ($IdP_\text{ak}$) is provisioned and managed, this explainer defines three paths:
 
 1. **Pre-provisioned AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy uses a **pre-provisioned AIK** created at clean-room device provisioning time and registered in the IdP's enterprise device registry (`aik_required` omitted in `Secure-Session-Registration`).
-2. **New AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy generates a **new AIK** during IdP session initialization (`aik_required=?1` in `Secure-Session-Registration`).
+2. **New AIK in an LKH:** An authorized LKH mapped to the IdP origin via enterprise policy generates a **new AIK** during IdP session initialization, which the IdP trusts on first use (TOFU) (`aik_required=?1` in `Secure-Session-Registration`).
 3. **New browser-managed AIK:** No LKH is mapped to the IdP origin, and the browser generates a **new browser-managed AIK** in the TEE during IdP session initialization, which the IdP trusts on first use (TOFU) (`aik_required=?1` in `Secure-Session-Registration`).
 
 ## Relationship to DBSC(E) and Convergence
@@ -185,7 +185,7 @@ sequenceDiagram
 ```
 Overview of the Single Sign-On authentication flow.
 
-As stated in the diagram's first note, it's expected that a DBSC session between the device and the IdP is previously established. In the IdP's session initialization, the client (browser or LKH) sends a `dbsc+aik` registration statement containing an AIK ($IdP_\text{ak-pub}$) that cryptographically ties the new IdP signing key ($IdP_\text{sk-pub}$) to the device and is subsequently used to attest per-RP signing keys across all three paths (**pre-provisioned AIK in an LKH**, **new AIK in an LKH**, and **new browser-managed AIK**). In the **new browser-managed AIK** path, IdPs can further harden initial [TOFU](https://en.wikipedia.org/wiki/Trust_on_first_use) trust by requiring stronger authentication factors, such as security keys, during session initialization.
+As stated in the diagram's first note, it's expected that a DBSC session between the device and the IdP is previously established. In the IdP's session initialization, the client (browser or LKH) sends a `dbsc+aik` registration statement containing an AIK ($IdP_\text{ak-pub}$) that cryptographically ties the new IdP signing key ($IdP_\text{sk-pub}$) to the device and is subsequently used to attest per-RP signing keys across all three paths (**pre-provisioned AIK in an LKH**, **new AIK in an LKH**, and **new browser-managed AIK**). In the **new AIK in an LKH** and **new browser-managed AIK** paths, IdPs can further harden initial [TOFU](https://en.wikipedia.org/wiki/Trust_on_first_use) trust by requiring stronger authentication factors, such as security keys, during session initialization.
 
 **The above high level diagram is broken down as follows:**
 
