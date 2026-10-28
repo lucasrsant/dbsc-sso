@@ -364,7 +364,7 @@ stmt := base64url_enc(raw_stmt)
    * If `fmt` is `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` ([RFC 5280 Section 4.1.2.7](https://www.rfc-editor.org/rfc/rfc5280#section-4.1.2.7)).
 
 	The field is required for both formats. `stmt` only ever carries a *digest* of the subject key, so without `sub_key` the IdP cannot recover the key material itself, and it cannot re-derive that digest under any other encoding.
-*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g., helper identifiers or binding semantics). This property is not covered by `sig`, thus if IdP needs to trust the values in it, their own LKH implementation should handle the signature.
+*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g., helper identifiers or binding semantics). This property is not covered by `sig`, thus if the IdP needs to trust the values in it, their own LKH implementation should sign them together with `challenge` and `sub_key` (or their digests) to prevent replay and cross-key substitution.
 
 **Server-side validation:** The server validates the registration statement and securely stores $(IdP_\text{sk-pub}, IdP_\text{ak-pub})$ (or, in the **pre-provisioned AIK in an LKH** path, verifies $IdP_\text{ak-pub}$ against its enterprise device registry and stores $IdP_\text{sk-pub}$). If valid, the server issues fresh (and bound) authentication cookies.
 
@@ -439,7 +439,7 @@ stmt := base64url_enc(raw_stmt)
    * If the stored `fmt` is `SECURE_ENCLAVE`, it is the DER-encoded `SubjectPublicKeyInfo` ([RFC 5280 Section 4.1.2.7](https://www.rfc-editor.org/rfc/rfc5280#section-4.1.2.7)).
 
 	The field is required for both formats. The IdP has to forward a trusted key digest to the RP (`dbsc_trusted_key_digest` in OIDC, `<dbsc:TrustedKey digest="...">` in SAML), and that digest is computed over the canonical JWK of $RP_\text{sk-pub}$ ([RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)) — a different encoding from the one hashed into `raw_stmt`. The IdP therefore needs the key itself, not just a digest of it.
-*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g. `helper_id`, `binding_type`, or attestation policies). This property is not covered by `sig`, thus if IdP needs to trust the values in it, their own LKH implementation should handle the signature.
+*  **extra_claims**: (Optional) A JSON object containing enterprise-specific contextual metadata (e.g. `helper_id`, `binding_type`, or attestation policies). This property is not covered by `sig`, thus if the IdP needs to trust the values in it, their own LKH implementation should sign them together with `challenge` and `sub_key` (or their digests) to prevent replay and cross-key substitution.
 
 The following diagram shows how a new DBSC session is established between the device and the RP on top of a trusted key digest:
 
@@ -666,7 +666,7 @@ To validate the registration statement, the IdP must do the following:
 	* **Other formats**:
 		1. If the IdP does not support `fmt`, it **MUST** reject the registration statement.
 		1. Otherwise, the IdP verifies `stmt`, `sig`, and `sub_key` according to that format's specification, ensuring that `sig` is valid under $IdP_\text{ak-pub}$, that the signed bytes in `stmt` commit to both `hash(challenge, hash_alg(alg))` and `sub_key`, and that $IdP_\text{sk-pub}$ matches the public key parameters extracted from `sub_key`.
-1. If present, verify any contextual attributes in `extra_claims` against IdP security policy. Because `extra_claims` is not covered by `sig`, the IdP **MUST NOT** trust its values for security policy decisions unless they are cryptographically authenticated (e.g., covered by the format's signed bytes or an LKH signature).
+1. If present, verify any contextual attributes in `extra_claims` against IdP security policy. Because `extra_claims` is not covered by `sig`, the IdP **MUST NOT** trust its values for security policy decisions unless they are cryptographically authenticated (e.g., covered by the format's signed bytes or an LKH signature that also covers `challenge` and `sub_key` or their digests).
 
 #### Public and attestation keys storage
 
@@ -722,7 +722,8 @@ The binding statement validation is done as follows:
 		1. If the IdP does not support the stored `fmt`, it **MUST** reject the binding statement.
 		1. Otherwise, the IdP verifies `stmt`, `sig`, and `sub_key` according to that format's specification, ensuring that `sig` is valid under the loaded $IdP_\text{ak-pub}$ and that the signed bytes in `stmt` commit to both `hash(challenge, hash_alg(alg))` and `sub_key`.
 		1. Extract the public key parameters from `sub_key`, construct its canonical JWK representation per RFC 7638, compute its digest using `hash_alg(alg)`, and Base64URL-encode the result to produce the RFC 7638 JWK Thumbprint to include in the authentication token forwarded to the RP (as `dbsc_trusted_key_digest` in OIDC tokens or in `<dbsc:TrustedKey digest="...">` in SAML assertions).
-1. If present, verify any contextual attributes in `extra_claims` against IdP security policy (e.g., verifying expected helper identifiers or clean-room binding semantics). Because `extra_claims` is not covered by `sig`, the IdP **MUST NOT** trust its values for security policy decisions unless they are cryptographically authenticated (e.g., covered by the format's signed bytes or an LKH signature).
+1. If present, verify any contextual attributes in `extra_claims` against IdP security policy (e.g., verifying expected helper identifiers or clean-room binding semantics). Because `extra_claims` is not covered by `sig`, the IdP **MUST NOT** trust its values for security policy decisions unless they are cryptographically authenticated (e.g., covered by the format's signed bytes or an LKH signature that also covers `challenge` and `sub_key` or their digests).
+
 #### SAML Assertions and OIDC tokens
 
 The SAML assertion or OIDC token returned to the User Agent after a successful login must contain both the trusted key digest (or certificate fingerprint) and the algorithm used (SHA-256, 384, or 512) in the fields indicated in this section.
