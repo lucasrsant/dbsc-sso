@@ -650,7 +650,7 @@ The registration statement (`typ: "dbsc+aik"`) is the payload sent to the IdP wh
 To validate the registration statement, the IdP must do the following:
 
 1. Verify the challenge signature using $IdP_\text{sk-pub}$.
-1. In the **pre-provisioned AIK in an LKH** path, verify that $IdP_\text{ak-pub}$ matches the device's pre-provisioned AIK in the IdP's enterprise device registry, and that `fmt` matches the format stored in that record.
+1. If the IdP omitted `aik_required` (the **pre-provisioned AIK in an LKH** path), verify that $IdP_\text{ak-pub}$ matches the pre-provisioned AIK of the device that authenticated during sign-in, and that `fmt` matches the format stored in that record. If either check fails, the IdP **MUST** reject the registration statement and **MUST NOT** fall back to trusting the AIK on first use.
 1. Verify that `alg` matches the expected algorithm of $IdP_\text{ak-pub}$.
 1. Verify the attestation statement according to `fmt`:
 	* **`SECURE_ENCLAVE`**:
